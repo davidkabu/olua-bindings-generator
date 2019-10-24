@@ -268,17 +268,23 @@ function olua.genCallback(cls, fi, write)
     if ai.CALLBACK.DEFAULT or ai.ATTR.NULLABLE then
         local DEFAULT = ai.CALLBACK.DEFAULT or "nullptr"
         local OLUA_IS_VALUE = olua.convfunc(ai.TYPE, 'is')
+        local REMOVE_CALLBACK = format [[
+            void *callback_store_obj = (void *)${CALLBACK_STORE_OBJ};
+            std::string tag = ${TAG_MAKER};
+            olua_removecallback(L, callback_store_obj, tag.c_str(), OLUA_TAG_EQUAL);
+        ]]
+        if OLUA_CALLBACK_TAG ~= 'OLUA_TAG_REPLACE' then
+            REMOVE_CALLBACK = ''
+        end
         CALLBACK_CHUNK = format([[
             if (${OLUA_IS_VALUE}(L, ${IDX})) {
                 ${CALLBACK_CHUNK}
             } else {
-                void *callback_store_obj = (void *)${CALLBACK_STORE_OBJ};
-                std::string tag = ${TAG_MAKER};
-                olua_removecallback(L, callback_store_obj, tag.c_str(), OLUA_TAG_EQUAL);
+                ${REMOVE_CALLBACK}
                 ${CALLBACK_ARG_NAME} = ${DEFAULT};
             }
         ]])
-        olua.nowarning(DEFAULT, OLUA_IS_VALUE)
+        olua.nowarning(DEFAULT, OLUA_IS_VALUE, REMOVE_CALLBACK)
     end
 
     olua.nowarning(CALLBACK_ARG_NAME, TAG_MAKER, CALLBACK_STORE_OBJ)
