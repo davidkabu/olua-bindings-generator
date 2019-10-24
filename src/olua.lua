@@ -1,0 +1,11 @@
+require "olua-typecls"
+require "olua-basictype"
+require "olua-gen-header"
+require "olua-gen-source"
+require "olua-gen-class"
+require "olua-gen-class-func"
+require "olua-gen-callback"
+require "olua-gen-conv"
+require "olua-checkref"
+
+return require "olua-io"
