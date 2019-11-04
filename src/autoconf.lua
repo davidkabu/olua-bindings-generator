@@ -35,24 +35,27 @@ function M:parse(path)
     local header = io.open(headerPath, 'w')
     header:write('#ifndef __AUTOCONF_H__\n')
     header:write('#define __AUTOCONF_H__\n')
-    header:write(string.format('#include "%s"\n', "gltypes.h"))
+    header:write('\n#undef __APPLE__\n\n')
     for _, v in ipairs(self.conf.PARSER.HEADERS) do
-        header:write(string.format('#include "%s"\n', v))
+        header:write(format('#include "${v}"'))
+        header:write('\n')
     end
     header:write('#endif')
     header:close()
 
     -- clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
     -- local index = clang.createIndex(false, true)
-    local index = clang.createIndex(false, false)
+    local index = clang.createIndex(false, true)
     local args = self.conf.PARSER.FLAGS
-    args[#args + 1] = '-I/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1'
-    args[#args + 1] = '-I/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/11.0.0/include'
-    args[#args + 1] = '-I/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/usr/include'
-    args[#args + 1] = '-I' .. olua.workpath .. '/include'
+    local workpath = olua.workpath
+    args[#args + 1] = format('-I${workpath}/include/c++')
+    args[#args + 1] = format('-I${workpath}/include/c')
+    args[#args + 1] = format('-I${workpath}/include/android-sysroot/')
+    args[#args + 1] = format('-I${workpath}/include/android-sysroot/x86_64-linux-android')
     args[#args + 1] = '-x'
     args[#args + 1] = 'c++'
-    args[#args + 1] = '-D__arm64__'
+    args[#args + 1] = '-DANDROID'
+    args[#args + 1] = '-D__linux__'
     args[#args + 1] = '-std=c++11'
 
     local tu = index:parse(headerPath, args)
@@ -512,15 +515,6 @@ function M:visitEnum(cur)
     end
 end
 
-function M:shouldExcludeTypeName(name)
-    if self.conf.EXCLUDE_TYPE[name] then
-        return true
-    elseif string.find(name, '<') then
-        name = string.gsub(name, '<.*>', '')
-        return self.conf.EXCLUDE_TYPE[name]
-    end
-end
-
 function M:shouldExcludeType(type, ignoreCallback)
     local name = type:name()
     if ignoreCallback and string.find(name, 'std::function') then
@@ -528,7 +522,7 @@ function M:shouldExcludeType(type, ignoreCallback)
     end
     local rawname = string.gsub(name, '^const *', '')
     rawname = string.gsub(rawname, ' *&$', '')
-    if self:shouldExcludeTypeName(rawname) then
+    if self.conf.EXCLUDE_TYPE[rawname] then
         return true
     elseif name ~= type:canonical():name() then
         return self:shouldExcludeType(type:canonical(), ignoreCallback)
