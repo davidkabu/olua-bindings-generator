@@ -512,6 +512,15 @@ function M:visitEnum(cur)
     end
 end
 
+function M:shouldExcludeTypeName(name)
+    if self.conf.EXCLUDE_TYPE[name] then
+        return true
+    elseif string.find(name, '<') then
+        name = string.gsub(name, '<.*>', '')
+        return self.conf.EXCLUDE_TYPE[name]
+    end
+end
+
 function M:shouldExcludeType(type, ignoreCallback)
     local name = type:name()
     if ignoreCallback and string.find(name, 'std::function') then
@@ -519,7 +528,7 @@ function M:shouldExcludeType(type, ignoreCallback)
     end
     local rawname = string.gsub(name, '^const *', '')
     rawname = string.gsub(rawname, ' *&$', '')
-    if self.conf.EXCLUDE_TYPE[rawname] then
+    if self:shouldExcludeTypeName(rawname) then
         return true
     elseif name ~= type:canonical():name() then
         return self:shouldExcludeType(type:canonical(), ignoreCallback)
