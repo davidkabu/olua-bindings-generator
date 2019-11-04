@@ -30,7 +30,6 @@ local function checkGCMethod(cls)
             fi.CPPFUNC = '__gc'
             fi.CPPFUNC_SNIPPET = format [[
                 {
-                    lua_settop(L, 1);
                     auto self = olua_touserdata(L, 1, ${cls.CPPCLS} *);
                     lua_pushstring(L, ".ownership");
                     olua_getvariable(L, 1);

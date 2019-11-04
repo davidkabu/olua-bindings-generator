@@ -367,7 +367,7 @@ local function genFuncPrototype(cls, fi)
         ARGS_DECL[#ARGS_DECL + 1] = (v.TYPE.SUBTYPES or next(v.CALLBACK)) and v.DECLTYPE or v.TYPE.CPPCLS
     end
     ARGS_DECL = table.concat(ARGS_DECL, ", ")
-    olua.nowarning(RET_DECL, CPPFUNC, STATIC)
+    olua.nowarning(RET_DECL, CPPFUNC, STATIC, ARGS_DECL)
     fi.PROTOTYPE = format([[
         ${STATIC}${RET_DECL} ${CPPFUNC}(${ARGS_DECL})
     ]])
@@ -413,7 +413,7 @@ local function genFuncOverload(cls, fi, funcs)
     end
     local MIN_ARGS = nil
     for i, arg in ipairs(fi.ARGS) do
-        if arg.DEFAULT ~= nil then
+        if arg.DEFAULT ~= nil or arg.ATTR.OPTIONAL then
             MIN_ARGS = i - 1
             break
         end
@@ -962,7 +962,7 @@ function olua.typeconv(ci)
 
         local tn, attr, varname, default
         attr, str = parseAttr(str)
-        
+
         if str and #str > 0 then
             tn, attr, str = parseType(str)
             varname, default = string.match(str, '^([^ ]+) *= *([^ ,;]*)')
@@ -973,8 +973,8 @@ function olua.typeconv(ci)
         if tn then
             varname = prettyTypename(varname)
             ci.PROPS[#ci.PROPS + 1] = {
-                TYPE = olua.typeinfo(tn),
-                DECLTYPE = todecltype(nil, tn, true),
+                TYPE = olua.typeinfo(tn, ci),
+                DECLTYPE = todecltype(ci, tn, true),
                 VARNAME = varname,
                 LUANAME = string.gsub(varname, '^_*', ''),
                 DEFAULT = default,
@@ -996,7 +996,7 @@ function olua.typeconv(ci)
         ci.FUNC['UNPACK'] = nil
         ci.FUNC['PACK'] = nil
     end
-    
+
     return ci
 end
 

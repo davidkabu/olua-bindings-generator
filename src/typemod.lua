@@ -45,6 +45,7 @@ end
 
 -- function typemod
 return function (name)
+    local INDEX = 1
     local module = {
         CLASSES = {},
         CONVS = {},
@@ -62,11 +63,13 @@ return function (name)
         loadfile(path)(module)
     end
 
-    function module.typeconf(name)
+    function module.typeconf(classname)
         local cls = {
-            CPPCLS = name,
+            CPPCLS = classname,
+            INDEX = INDEX,
         }
-        module.CLASSES[#module.CLASSES + 1] = cls
+        INDEX = INDEX + 1
+        module.CLASSES[classname] = cls
         return addcmd(cls)
     end
 
@@ -77,6 +80,7 @@ return function (name)
     function module.typeconv(info)
         module.CONVS[#module.CONVS + 1] = {
             CPPCLS = assert(info.CPPCLS),
+            VARS = info.VARS,
             DEF = olua.format(assert(info.DEF)),
             FUNC = info.FUNC,
         }

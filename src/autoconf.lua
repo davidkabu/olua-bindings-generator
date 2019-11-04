@@ -25,21 +25,18 @@ end})
 
 function M:parse(path)
     print('autoconf => ' .. path)
-    self.module = dofile(path)
-    self.namespace = {}
-    self.classConf = {}
+    self.conf = dofile(path)
     self.classes = {}
-    self.typeref = {}
+    self.typeAlias = {}
 
-    self._fileLines = {}
-    self._file = io.open('autobuild/' .. self:toPath(self.module.NAME) .. '.lua', 'w')
+    self._file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '.lua', 'w')
 
-    local headerPath = 'autobuild/autoconf.h'
+    local headerPath = 'autobuild/.autoconf.h'
     local header = io.open(headerPath, 'w')
     header:write('#ifndef __AUTOCONF_H__\n')
     header:write('#define __AUTOCONF_H__\n')
     header:write(string.format('#include "%s"\n', "gltypes.h"))
-    for _, v in ipairs(self.module.PARSER.PATH) do
+    for _, v in ipairs(self.conf.PARSER.HEADERS) do
         header:write(string.format('#include "%s"\n', v))
     end
     header:write('#endif')
@@ -48,25 +45,21 @@ function M:parse(path)
     -- clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
     -- local index = clang.createIndex(false, true)
     local index = clang.createIndex(false, false)
-    local args = self.module.PARSER.ARGS
+    local args = self.conf.PARSER.FLAGS
     args[#args + 1] = '-I/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1'
+    args[#args + 1] = '-I/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/11.0.0/include'
     args[#args + 1] = '-I/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/usr/include'
     args[#args + 1] = '-I' .. olua.workpath .. '/include'
     args[#args + 1] = '-x'
     args[#args + 1] = 'c++'
+    args[#args + 1] = '-D__arm64__'
     args[#args + 1] = '-std=c++11'
-
-    for i, c in ipairs(self.module.CLASSES) do
-        assert(not c.INDEX)
-        c.INDEX = i
-        self.classConf[c.CPPCLS] = c
-    end
 
     local tu = index:parse(headerPath, args)
     self:visit(tu:cursor())
     self:writeLine("-- AUTO BUILD, DON'T MODIFY!")
     self:writeLine('')
-    self:writeLine('require "autobuild.%s-types"', self:toPath(self.module.NAME))
+    self:writeLine('require "autobuild.%s-types"', self:toPath(self.conf.NAME))
     self:writeLine('')
     self:writeLine('local olua = require "olua"')
     self:writeLine('local typeconv = olua.typeconv')
@@ -88,14 +81,6 @@ function M:toPath(name)
     return string.gsub(name, '_', '-')
 end
 
-function M:tableToKey(arr)
-    local t = {}
-    for _, v in ipairs(arr or {}) do
-        t[v] = true
-    end
-    return t
-end
-
 function M:write(fmt, ...)
     self._file:write(string.format(fmt, ...))
 end
@@ -110,26 +95,25 @@ function M:writeRaw(str)
 end
 
 function M:writeHeader()
-    self:writeLine('M.NAME = "' .. self.module.NAME .. '"')
-    self:writeLine('M.HEADER_PATH = "' .. self.module.HEADER_PATH .. '"')
-    self:writeLine('M.SOURCE_PATH = "' .. self.module.SOURCE_PATH .. '"')
-    if self.module.HEADER_INCLUDES then
+    self:writeLine('M.NAME = "' .. self.conf.NAME .. '"')
+    self:writeLine('M.PATH = "' .. self.conf.PATH .. '"')
+    if self.conf.HEADER_INCLUDES then
         self:writeLine('M.HEADER_INCLUDES = [[')
-        self:write(self.module.HEADER_INCLUDES)
+        self:write(self.conf.HEADER_INCLUDES)
         self:writeLine(']]')
     end
     self:writeLine('M.INCLUDES = [[')
-    self:write(self.module.INCLUDES)
+    self:write(self.conf.INCLUDES)
     self:writeLine(']]')
-    if self.module.CHUNK then
+    if self.conf.CHUNK then
         self:writeLine('M.CHUNK = [[')
-        self:writeRaw(self.module.CHUNK)
+        self:writeRaw(self.conf.CHUNK)
         self:writeLine(']]')
     end
     self:writeLine('')
-    if #self.module.CONVS > 0 then
+    if #self.conf.CONVS > 0 then
         self:writeLine('M.CONVS = {')
-        for _, v in ipairs(self.module.CONVS) do
+        for _, v in ipairs(self.conf.CONVS) do
             olua.nowarning(v)
             self:writeLine(format([=[
                 typeconv {
@@ -146,9 +130,10 @@ function M:writeHeader()
 end
 
 function M:writeTypedef()
-    local file = io.open('autobuild/' .. self:toPath(self.module.NAME) .. '-types.lua', 'w')
+    local file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '-types.lua', 'w')
     local classes = {}
     local enums = {}
+    local typemap = {}
     local function writeLine(fmt, ...)
         file:write(string.format(fmt, ...))
         file:write('\n')
@@ -160,7 +145,7 @@ function M:writeTypedef()
     writeLine('')
     writeLine('olua.nowarning(typedef)')
     writeLine('')
-    for _, td in ipairs(self.module.TYPEDEFS) do
+    for _, td in ipairs(self.conf.TYPEDEFS) do
         local arr = {}
         for k, v in pairs(td) do
             arr[#arr + 1] = {k, v}
@@ -181,18 +166,42 @@ function M:writeTypedef()
         writeLine("}")
         writeLine("")
     end
+    for _, v in ipairs(self.conf.CONVS) do
+        local CPPCLS_PATH = string.gsub(v.CPPCLS, '::', '_')
+        local VARS = v.VARS or 'nil'
+        olua.nowarning(CPPCLS_PATH, VARS)
+        file:write(format([[
+            typedef {
+                CPPCLS = '${v.CPPCLS}',
+                CONV = 'auto_olua_$$_${CPPCLS_PATH}',
+                VARS = ${VARS},
+            }
+        ]]))
+        file:write('\n\n')
+    end
     for _, cls in ipairs(self.classes) do
+        typemap[cls.CPPCLS] = cls
         if cls.KIND == 'Enum' then
             enums[#enums + 1] = cls.CPPCLS
         elseif cls.KIND == 'Class' then
             classes[#classes + 1] = cls.CPPCLS
         end
     end
+    for alias, cppcls in pairs(self.typeAlias) do
+        local cls = typemap[cppcls] or typemap[alias]
+        if cls then
+            if cls.KIND == 'Class' then
+                classes[#classes + 1] = alias
+            else
+                enums[#enums + 1] = alias
+            end
+        end
+    end
     table.sort(classes)
     table.sort(enums)
     for _, v in ipairs(enums) do
         local CPPCLS = v
-        local LUACLS = self.module.MAKE_LUACLS(v)
+        local LUACLS = self.conf.MAKE_LUACLS(v)
         olua.nowarning(CPPCLS, LUACLS)
         file:write(format([[
             typedef {
@@ -206,7 +215,7 @@ function M:writeTypedef()
     end
     for _, v in ipairs(classes) do
         local CPPCLS = v
-        local LUACLS = self.module.MAKE_LUACLS(v)
+        local LUACLS = self.conf.MAKE_LUACLS(v)
         olua.nowarning(CPPCLS, LUACLS)
         file:write(format([[
             typedef {
@@ -223,7 +232,7 @@ function M:writeClass()
     for _, cls in ipairs(self.classes) do
         cachedClass[cls.CPPCLS] = cls
     end
-    for name, cls in pairs(self.classConf) do
+    for name, cls in pairs(self.conf.CLASSES) do
         if cls.NOTCONF then
             cachedClass[cls.CPPCLS] = {
                 KIND = 'Class',
@@ -264,11 +273,14 @@ function M:writeClass()
     self:writeLine('M.CLASSES = {}')
     self:writeLine('')
     for _, cls in ipairs(self.classes) do
+        if cls.KIND == 'EnumAlias' then
+            goto continue
+        end
         self:writeLine("cls = typecls '%s'", cls.CPPCLS)
         if cls.SUPERCLS then
             self:writeLine('cls.SUPERCLS = "' .. cls.SUPERCLS .. '"')
         end
-        if cls.CONF.REG_LUATYPE == false then
+        if cls.CONF.REG_LUATYPE == false or cls.REG_LUATYPE == false then
             self:writeLine('cls.REG_LUATYPE = false')
         end
         if cls.CONF.DEFIF then
@@ -285,7 +297,7 @@ function M:writeClass()
                 self:writeLine('    ' .. value)
             end
             self:writeLine(']]')
-        else
+        elseif cls.KIND == 'Class' then
             local props = {}
             local filter = {}
             local function tryAddProp(fn)
@@ -325,7 +337,6 @@ function M:writeClass()
                 end
                 self:writeLine(']]')
             end
-            assert(cls.KIND == 'Class', cls.KIND)
             self:writeLine('cls.funcs [[')
             for _, fn in ipairs(cls.FUNCS) do
                 if shouldExportFunc(cls.SUPERCLS, fn) then
@@ -364,6 +375,8 @@ function M:writeClass()
         end
         self:writeLine('M.CLASSES[#M.CLASSES + 1] = cls')
         self:writeLine('')
+
+        ::continue::
     end
 end
 
@@ -474,282 +487,182 @@ function M:writeConfAlias(cls)
     end
 end
 
-function M:toNamespace()
-    return table.concat(self.namespace, '::')
-end
-
-function M:toClass(name)
-    local ns = self:toNamespace()
-    if #ns > 0 then
-        return ns .. '::' .. name
-    else
-        return name
-    end
-end
-
-function M:pushNamespace(ns)
-    self.namespace[#self.namespace + 1] = ns
-end
-
-function M:popNamespace(ns)
-    self.namespace[#self.namespace] = nil
-end
-
-function M:shouldExport(name)
-    return self.classConf[self:toClass(name)]
-end
-
-function M:loadFile(path)
-    if self._fileLines.path ~= path then
-        self._fileLines = {}
-        self._fileLines.path = path
-        local f = io.open(path)
-        for l in f:lines() do
-            self._fileLines[#self._fileLines + 1] = l
-        end
-        f:close()
-    end
-    return self._fileLines
-end
-
 function M:createClass()
     local cls = {}
     self.classes[#self.classes + 1] = cls
     return cls
 end
 
-function M:trimClassname(name)
-    name = string.gsub(name, 'class +', '')
-    name = string.gsub(name, 'struct +', '')
-    name = string.gsub(name, 'enum +', '')
-    return name
-end
-
 function M:visitEnum(cur)
-    local name = cur:name()
     local cls = self:createClass()
-    local cppcls = self:toClass(name)
-    local conf = self.classConf[cppcls]
+    local cppcls = cur:fullname()
+    local conf = self.conf.CLASSES[cppcls]
     cls.CONF = conf
     cls.CPPCLS = cppcls
     cls.ENUMS = {}
-    cls.KIND = 'Enum'
-    for _, c in ipairs(cur:children()) do
-        local kind = c:kind()
-        assert(kind == 'EnumConstantDecl', kind)
-        cls.ENUMS[#cls.ENUMS + 1] = c:name()
+    if cur:kind() ~= 'TypeAliasDecl' then
+        for _, c in ipairs(cur:children()) do
+            local kind = c:kind()
+            assert(kind == 'EnumConstantDecl', kind)
+            cls.ENUMS[#cls.ENUMS + 1] = c:name()
+        end
+        cls.KIND = 'Enum'
+    else
+        cls.KIND = 'EnumAlias'
     end
 end
 
-local typeMap = {
-    UInt = 'unsigned int',
-    Int = 'int',
-    Float = 'float',
-    Void = 'void',
-    Bool = 'bool',
-    Double = 'double',
-    Char_S = 'char',
-    UChar = 'unsigned char'
+function M:shouldExcludeType(type, ignoreCallback)
+    local name = type:name()
+    if ignoreCallback and string.find(name, 'std::function') then
+        return true
+    end
+    local rawname = string.gsub(name, '^const *', '')
+    rawname = string.gsub(rawname, ' *&$', '')
+    if self.conf.EXCLUDE_TYPE[rawname] then
+        return true
+    elseif name ~= type:canonical():name() then
+        return self:shouldExcludeType(type:canonical(), ignoreCallback)
+    end
+end
+
+local DEFAULT_ARG_TYPES = {
+    IntegerLiteral = true,
+    FloatingLiteral = true,
+    ImaginaryLiteral = true,
+    StringLiteral = true,
+    CharacterLiteral = true,
+    CXXBoolLiteralExpr = true,
+    CXXNullPtrLiteralExpr = true,
+    GNUNullExpr = true,
+    DeclRefExpr = true,
 }
 
-function M:parseType(cur, children)
-    local typename = ''
-    for _, v in ipairs(children) do
-        local kind = v:kind()
-        if kind == 'NamespaceRef' then
-            typename = v:name() .. '::'
-        elseif kind == 'TypeRef' then
-            if v:name():find('::') then
-                typename = v:name()
-            else
-                typename = typename .. v:name()
+function M:hasDefaultValue(cur)
+    for _, c in ipairs(cur:children()) do
+        if DEFAULT_ARG_TYPES[c:kind()] then
+            return true
+        else
+            if self:hasDefaultValue(c) then
+                return true
             end
-            typename = self.typeref[typename] or typename
-            break
-        elseif kind ~= 'CXXOverrideAttr' then
-            break
         end
     end
-    typename = self:trimClassname(typename)
+end
 
-    local name = cur:kind()
-    if #typename > 0 then
-        if name == 'Pointer' then
-            return typename .. ' *'
-        else
-            return typename
+function M:visitMethod(cls, cur)
+    if cur:kind() == 'Constructor' then
+        if cur:access() ~= 'public'  or
+            cur:isConvertingConstructor() or
+            cur:isCopyConstructor() or
+            cur:isMoveConstructor() then
+            return
         end
     else
-        if name == 'Pointer' then
-            name = cur:pointee():kind()
-            typename = typeMap[name] or name
-            return typename .. ' *'
-        end
-        return typeMap[name] or name
-    end
-end
-
-function M:shouldExcludeType(cur, children)
-    local type = self:parseType(cur, children)
-    return self.module.EXCLUDE_TYPE[type]
-end
-
-function M:extractDefine(cur)
-    local prototype
-    local path, startLine, startCol, endLine, endCol = cur:location()
-    local lines = self:loadFile(path)
-    for i = startLine, endLine do
-        if i == startLine and i == endLine then
-            prototype = lines[i]:sub(startCol, endCol)
-        elseif i == startLine then
-            prototype = lines[i]:sub(startCol)
-        elseif i == endLine  then
-            prototype = prototype .. lines[i]:sub(1, endCol)
-        else
-            prototype = prototype .. lines[i]
-        end
-    end
-    return prototype
-end
-
-function M:visitCXXMethod(cls, cur)
-    if cur:access() ~= 'public' and cur:kind() ~= 'FunctionDecl' then
-        return
-    end
-
-    local prototype = self:extractDefine(cur)
-    local children = cur:children()
-    if #children > 0 and children[1]:kind() == 'UnexposedAttr' then
-        -- print('[ignore] ' .. prototype)
-        return
-    end
-
-    local resultType = cur:resultType()
-    -- print(prototype)
-    if self:shouldExcludeType(resultType, cur:children()) then
-        return
-    end
-    for _, arg in ipairs(cur:arguments()) do
-        if self:shouldExcludeType(arg:type(), arg:children()) then
+        if cur:access() ~= 'public' and cur:kind() ~= 'FunctionDecl' then
             return
         end
     end
 
-    if not string.find(prototype, cur:name() .. ' *%(') then
-        local arr = {}
-        if cur:isStatic() then
-            arr[#arr + 1] = 'static '
+    if cur:kind() ~= 'Constructor' then
+        if self:shouldExcludeType(cur:resultType(), true) then
+            return
         end
-        arr[#arr + 1] = self:parseType(cur:resultType(), cur:children()) .. ' '
-        arr[#arr + 1] = cur:name()
-        arr[#arr + 1] = '('
-        for i, arg in ipairs(cur:arguments()) do
-            local at = self:parseType(arg:type(), arg:children())
-            if i > 1 then
-                arr[#arr + 1] = ', '
-            end
-            arr[#arr + 1] = at .. ' ' .. arg:name()
-        end
-        arr[#arr + 1] = ')'
-        prototype = table.concat(arr, '')
     end
 
-    if self.module.EXCLUDE_PATTERN(cls.CPPCLS, cur:name(), prototype) then
+    for _, c in ipairs(cur:children()) do
+        if c:kind() == 'UnexposedAttr' then
+            return
+        end
+    end
+
+    for _, arg in ipairs(cur:arguments()) do
+        if self:shouldExcludeType(arg:type(), true) then
+            return
+        end
+    end
+
+    local attr = cls.CONF.ATTR[cur:name()] or {}
+    local exps = {}
+
+    exps[#exps + 1] = attr.RET and (attr.RET .. ' ') or nil
+    exps[#exps + 1] = cur:isStatic() and 'static ' or nil
+
+    if cur:kind() ~= 'Constructor' then
+        local resultType = cur:resultType():name()
+        exps[#exps + 1] = resultType
+        if not string.find(resultType, '[*&]$') then
+            exps[#exps + 1] = ' '
+        end
+    end
+
+    local optional = false
+    exps[#exps + 1] = cur:name() .. '('
+    for i, arg in ipairs(cur:arguments()) do
+        local type = arg:type():name()
+        local ARGN = 'ARG' .. i
+        if i > 1 then
+            exps[#exps + 1] = ', '
+        end
+        if self:hasDefaultValue(arg) then
+            exps[#exps + 1] = '@optional '
+            optional = true
+        else
+            assert(not optional, cls.CPPCLS .. '::' .. cur:displayName())
+        end
+        exps[#exps + 1] = attr[ARGN] and (attr[ARGN] .. ' ') or nil
+        exps[#exps + 1] = type
+        if not string.find(type, '[*&]$') then
+            exps[#exps + 1] = ' '
+        end
+        exps[#exps + 1] = arg:name()
+    end
+    exps[#exps + 1] = ')'
+
+    local decl = table.concat(exps, '')
+    if self.conf.EXCLUDE_PATTERN(cls.CPPCLS, cur:name(), decl) then
         return
+    else
+        return decl
     end
-
-    prototype = string.gsub(prototype, ' +', ' ')
-    prototype = string.gsub(prototype, 'virtual *', '')
-    prototype = string.gsub(prototype, 'inline *', '')
-    prototype = string.gsub(prototype, '[^)]*$', '')
-    prototype = string.gsub(prototype, '/%*[^/]*%*/', '')
-    return prototype
 end
 
 function M:visitFieldDecl(cls, cur)
-    if cur:access() ~= 'public' then
+    if cur:access() ~= 'public' or cur:type():isConst() then
         return nil
     end
 
-    if self:shouldExcludeType(cur:type(), cur:children()) then
+    if self:shouldExcludeType(cur:type()) then
         return
     end
 
-    local prototype = self:extractDefine(cur)
+    local exps = {}
 
-    if self.module.EXCLUDE_PATTERN(cls.CPPCLS, cur:name(), prototype) then
+    if self:hasDefaultValue(cur) then
+        exps[#exps + 1] = '@optional '
+    end
+
+    local type = cur:type():name()
+    exps[#exps + 1] = type
+    if not string.find(type, '[*&]$') then
+        exps[#exps + 1] = ' '
+    end
+
+    exps[#exps + 1] = cur:name()
+
+    local decl = table.concat(exps, '')
+    if self.conf.EXCLUDE_PATTERN(cls.CPPCLS, cur:name(), decl) then
         return
+    else
+        return {NAME = cur:name(), SNIPPET = decl}
     end
-
-    if string.find(prototype, '^ *const ') then
-        return
-    end
-
-    prototype = string.gsub(prototype, ' +', ' ')
-    prototype = string.gsub(prototype, '[; ]*$', '')
-    return {NAME = cur:name(), SNIPPET = prototype}
-end
-
-function M:injectAttr(prototype, fn, attr)
-    local t = {}
-    local _, e = string.find(prototype, fn .. ' *')
-    t[1] = prototype:sub(1, e + 1)
-    for v in string.gmatch(prototype:sub(e + 2), '[^,]+') do
-        t[#t + 1] = string.gsub(v, '^ *', '')
-    end
-    if attr.RET then
-        t[1] = attr.RET .. ' ' .. t[1]
-    end
-    for i = 2, #t do
-        local ARGN = 'ARG' .. (i - 1)
-        if attr[ARGN] then
-            t[i] = attr[ARGN] .. ' ' .. t[i]
-        end
-    end
-    return t[1] .. table.concat(t, ', ', 2)
-end
-
-function M:visitConstructor(cls, cur)
-    if cur:access() ~= 'public' then
-        return
-    end
-
-    if cur:displayName():find('&') then
-        return
-    end
-
-    if cur:isConvertingConstructor() or
-        cur:isCopyConstructor() or
-        cur:isMoveConstructor() then
-        return
-    end
-
-    local prototype = self:extractDefine(cur)
-    if not string.find(prototype, cur:name() .. ' *%(') then
-        return
-    end
-
-    for _, arg in ipairs(cur:arguments()) do
-        if self:shouldExcludeType(arg:type(), arg:children()) then
-            return
-        end
-    end
-
-    prototype = string.match(prototype, '[^;{}]+')
-    prototype = string.gsub(prototype, '[\n\r]+', ' ')
-    prototype = string.gsub(prototype, ' +', ' ')
-    prototype = string.gsub(prototype, 'explicit *', '')
-    prototype = string.gsub(prototype, '[^)]*$', '')
-    prototype = string.gsub(prototype, '/%*[^/]*%*/', '')
-    return prototype
 end
 
 function M:visitClass(cur)
-    local name = cur:name()
     local cls = self:createClass()
     local filter = {}
-    local cppcls = self:toClass(name)
-    local conf = self.classConf[cppcls]
+    local cppcls = cur:fullname()
+    local conf = self.conf.CLASSES[cppcls]
     cls.CPPCLS = cppcls
     cls.SUPERCLS = conf.SUPERCLS
     cls.CONF = conf
@@ -759,102 +672,23 @@ function M:visitClass(cur)
     cls.KIND = 'Class'
     cls.INST_FUNCS = {}
 
+    if cur:kind() == 'Namespace' then
+        cls.REG_LUATYPE = false
+    end
+
     ignoredClass[cppcls] = false
 
-    self:pushNamespace(name)
     for _, c in ipairs(cur:children()) do
         local kind = c:kind()
         if kind == 'CXXBaseSpecifier' then
             if not cls.SUPERCLS then
-                cls.SUPERCLS = self:trimClassname(c:name())
+                cls.SUPERCLS = c:type():name()
             end
-        elseif kind == 'Constructor' then
-            if conf.EXCLUDE['*'] or cur:isAbstract() then
-                goto continue
-            end
-            local displayName = c:displayName()
-            local fn = c:name()
-            if not filter[displayName] and
-                not conf.EXCLUDE[fn] and not conf.EXCLUDE['new'] then
-                if not c:isStatic() then
-                    cls.INST_FUNCS[displayName] = cls.CPPCLS
-                end
-                local func = self:visitConstructor(cls, c)
-                if func then
-                    filter[displayName] = true
-                    if conf.GSUB then
-                        func = conf.GSUB(fn, func)
-                    end
-                    cls.FUNCS[#cls.FUNCS + 1] = {
-                        FUNC = func,
-                        NAME = fn,
-                        ARGS = #c:arguments(),
-                        PROTOTYPE = displayName,
-                    }
-                end
-            end
-        elseif kind == 'FunctionDecl' then
-            if conf.EXCLUDE['*'] then
-                goto continue
-            end
-            local displayName = c:displayName()
-            local fn = c:name()
-            local attr = conf.ATTR[fn]
-            local func = self:visitCXXMethod(cls, c)
-            if func then
-                func = 'static ' .. func
-                filter[displayName] = true
-                if attr then
-                    func = self:injectAttr(func, fn, attr)
-                end
-                if conf.GSUB then
-                    func = conf.GSUB(fn, func)
-                end
-                cls.FUNCS[#cls.FUNCS + 1] = {
-                    FUNC = func,
-                    NAME = fn,
-                    ARGS = #c:arguments(),
-                    PROTOTYPE = displayName,
-                }
-            end
-        elseif kind == 'CXXMethod' then
-            if conf.EXCLUDE['*'] then
-                goto continue
-            end
-            local displayName = c:displayName()
-            local fn = c:name()
-            local attr = conf.ATTR[fn]
-            if not filter[displayName] and
-                not conf.EXCLUDE[fn] then
-                if not c:isStatic() then
-                    cls.INST_FUNCS[displayName] = cls.CPPCLS
-                end
-                local func = self:visitCXXMethod(cls, c)
-                if func then
-                    filter[displayName] = true
-                    if attr then
-                        func = self:injectAttr(func, fn, attr)
-                    end
-                    if conf.GSUB then
-                        func = conf.GSUB(fn, func)
-                    end
-                    cls.FUNCS[#cls.FUNCS + 1] = {
-                        FUNC = func,
-                        NAME = fn,
-                        ARGS = #c:arguments(),
-                        PROTOTYPE = displayName,
-                    }
-                end
-            end
-        elseif kind == 'EnumDecl' then
-            self:visit(c)
         elseif kind == 'FieldDecl' then
-            if conf.EXCLUDE['*'] then
+            if conf.EXCLUDE['*'] or conf.EXCLUDE[c:name()] then
                 goto continue
             end
-            if not conf.EXCLUDE[c:name()] then
-                cls.VARS[#cls.VARS + 1] = self:visitFieldDecl(cls, c)
-            end
+            cls.VARS[#cls.VARS + 1] = self:visitFieldDecl(cls, c)
         elseif kind == 'VarDecl' then
             if conf.EXCLUDE['*'] then
                 goto continue
@@ -866,53 +700,73 @@ function M:visitClass(cur)
                     cls.ENUMS[#cls.ENUMS + 1] = c:name()
                 end
             end
-        elseif kind == 'ClassDecl' or kind == 'StructDecl' then
+        elseif kind == 'Constructor' or kind == 'FunctionDecl' or kind == 'CXXMethod' then
+            local displayName = c:displayName()
+            local fn = c:name()
+            if (conf.EXCLUDE['*'] or conf.EXCLUDE[fn] or filter[displayName]) or
+                (kind == 'Constructor' and (conf.EXCLUDE['new'] or cur:isAbstract())) then
+                goto continue
+            end
+            local func = self:visitMethod(cls, c)
+            if func then
+                if kind == 'FunctionDecl' then
+                    func = 'static ' .. func
+                elseif not c:isStatic() then
+                    cls.INST_FUNCS[displayName] = cls.CPPCLS
+                end
+                filter[displayName] = true
+                cls.FUNCS[#cls.FUNCS + 1] = {
+                    FUNC = func,
+                    NAME = fn,
+                    ARGS = #c:arguments(),
+                    PROTOTYPE = displayName,
+                }
+            end
+        else
             self:visit(c)
         end
 
         ::continue::
     end
-    self:popNamespace()
 end
 
 function M:visit(cur)
     local kind = cur:kind()
-    local name = cur:name()
     local children = cur:children()
-    if kind == 'Namespace' then
-        self:pushNamespace(name)
-        if self.classConf[self:toNamespace()] then
-            self:popNamespace()
+    local shouldExport = self.conf.CLASSES[cur:fullname()]
+    if #children == 0 then
+        return
+    elseif kind == 'Namespace' then
+        if shouldExport then
             self:visitClass(cur)
         else
-            local ns = self:toNamespace()
-            for _, v in ipairs(self.module.NAMESPACES) do
-                if string.find(v, ns) then
-                    for _, c in ipairs(children) do
-                        self:visit(c)
-                    end
-                    break
-                end
+            for _, c in ipairs(children) do
+                self:visit(c)
             end
-            self:popNamespace()
         end
     elseif kind == 'ClassDecl' or kind == 'StructDecl' then
-        if self:shouldExport(name) and #children > 0 then
+        if shouldExport then
             self:visitClass(cur)
-        elseif #children > 0 then
-            local cls = self:toClass(name)
-            if not self.module.EXCLUDE_TYPE[cls] then
+        else
+            local cls = cur:fullname()
+            if not self.conf.EXCLUDE_TYPE[cls] and not string.find(cls, '^std::') then
                 if ignoredClass[cls] == nil then
                     ignoredClass[cls] = true
                 end
             end
         end
     elseif kind == 'EnumDecl' then
-        if self:shouldExport(name) and #children > 0 then
+        if shouldExport then
             self:visitEnum(cur)
         end
-    elseif kind == 'TypedefDecl' then
-        self.typeref[name] = self:toClass(name)
+    elseif kind == 'TypeAliasDecl' then
+        local fullname = cur:fullname()
+        if not string.find(fullname, '^std::') then
+            self.typeAlias[fullname] = cur:type():canonical():name()
+            if shouldExport then
+                self:visitEnum(cur)
+            end
+        end
     else
         for _, c in ipairs(children) do
             self:visit(c)

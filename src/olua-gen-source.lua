@@ -94,5 +94,7 @@ function olua.genSource(module)
     genInclude(module, append)
     genClasses(module, append)
     genLuaopen(module, append)
-    olua.write(module.SOURCE_PATH, table.concat(arr, "\n"))
+
+    local PATH = olua.format '${module.PATH}/lua_${module.NAME}.cpp'
+    olua.write(PATH, table.concat(arr, "\n"))
 end

@@ -33,7 +33,8 @@ local function genConvHeader(module)
     DECL_FUNCS = table.concat(DECL_FUNCS, "\n")
 
     local HEADER_INCLUDES = module.HEADER_INCLUDES
-    olua.write(module.HEADER_PATH, format([[
+    local PATH = olua.format '${module.PATH}/lua_${module.NAME}.h'
+    olua.write(PATH, format([[
         //
         // AUTO BUILD, DON'T MODIFY!
         //
@@ -315,7 +316,8 @@ local function genConvSource(module)
         genFuncs(cv, append)
     end
 
-    olua.write(module.SOURCE_PATH, table.concat(arr, "\n"))
+    local PATH = olua.format '${module.PATH}/lua_${module.NAME}.cpp'
+    olua.write(PATH, table.concat(arr, "\n"))
 end
 
 function olua.genConv(module, write)

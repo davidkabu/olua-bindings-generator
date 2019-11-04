@@ -398,8 +398,6 @@ local function genOneFunc(cls, fi, write, funcidx, exported)
         {
             olua_startinvoke(L);
 
-            lua_settop(L, ${FUNC.TOTAL_ARGS});
-
             ${FUNC.DECL_ARGS}
 
             ${FUNC.CHECK_ARGS}
