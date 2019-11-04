@@ -26,8 +26,9 @@ end})
 function M:parse(path)
     print('autoconf => ' .. path)
     self.conf = dofile(path)
+    self.visited = {}
     self.classes = {}
-    self.typeAlias = {}
+    self.aliases = {}
 
     self._file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '.lua', 'w')
 
@@ -190,7 +191,7 @@ function M:writeTypedef()
             classes[#classes + 1] = cls.CPPCLS
         end
     end
-    for alias, cppcls in pairs(self.typeAlias) do
+    for alias, cppcls in pairs(self.aliases) do
         local cls = typemap[cppcls] or typemap[alias]
         if cls then
             if cls.KIND == 'Class' then
@@ -503,6 +504,7 @@ function M:visitEnum(cur)
     cls.CONF = conf
     cls.CPPCLS = cppcls
     cls.ENUMS = {}
+    self.visited[cppcls] = true
     if cur:kind() ~= 'TypeAliasDecl' then
         for _, c in ipairs(cur:children()) do
             local kind = c:kind()
@@ -675,6 +677,8 @@ function M:visitClass(cur)
     cls.KIND = 'Class'
     cls.INST_FUNCS = {}
 
+    self.visited[cppcls] = true
+
     if cur:kind() == 'Namespace' then
         cls.REG_LUATYPE = false
     end
@@ -736,7 +740,7 @@ end
 function M:visit(cur)
     local kind = cur:kind()
     local children = cur:children()
-    local shouldExport = self.conf.CLASSES[cur:fullname()]
+    local shouldExport = self.conf.CLASSES[cur:fullname()] and not self.visited[cur:fullname()]
     if #children == 0 then
         return
     elseif kind == 'Namespace' then
@@ -765,7 +769,7 @@ function M:visit(cur)
     elseif kind == 'TypeAliasDecl' then
         local fullname = cur:fullname()
         if not string.find(fullname, '^std::') then
-            self.typeAlias[fullname] = cur:type():canonical():name()
+            self.aliases[fullname] = cur:type():canonical():name()
             if shouldExport then
                 self:visitEnum(cur)
             end
