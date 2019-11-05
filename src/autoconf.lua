@@ -345,7 +345,7 @@ function M:writeClass()
             local callbacks = {}
             for _, fn in ipairs(cls.FUNCS) do
                 if shouldExportFunc(cls.SUPERCLS, fn) then
-                    if not fn.HAS_CALLBACK then
+                    if not fn.CALLBACK_TYPE then
                         self:writeLine('    ' .. fn.FUNC)
                         tryAddProp(fn)
                     else
@@ -365,10 +365,11 @@ function M:writeClass()
                     FUNCS[i] = fn.FUNC
                 end
                 local tag = v[1].NAME:gsub('^set', ''):gsub('^get', '')
+                local mode = v[1].CALLBACK_TYPE == 'RET' and 'OLUA_TAG_EQUAL' or 'OLUA_TAG_REPLACE'
                 cls.CONF.CALLBACK {
                     FUNCS = FUNCS,
                     TAG_MAKER = olua.format 'olua_makecallbacktag("${tag}")',
-                    TAG_MODE = 'OLUA_TAG_REPLACE',
+                    TAG_MODE = mode,
                 }
             end
             for _, cb in ipairs(cls.CONF.CALLBACK) do
@@ -623,8 +624,21 @@ function M:visitMethod(cls, cur)
     exps[#exps + 1] = attr.RET and (attr.RET .. ' ') or nil
     exps[#exps + 1] = cur:isStatic() and 'static ' or nil
 
+    local callbackType
+
     if cur:kind() ~= 'Constructor' then
         local resultType = cur:resultType():name()
+        local funcType = self:toFuncType(cur:resultType())
+        if funcType then
+            callbackType = 'RET'
+            resultType = funcType
+            if attr.NULLABLE ~= false then
+                exps[#exps + 1] = '@nullable '
+            end
+            if attr.LOCAL ~= false then
+                exps[#exps + 1] = '@local '
+            end
+        end
         exps[#exps + 1] = resultType
         if not string.find(resultType, '[*&]$') then
             exps[#exps + 1] = ' '
@@ -632,7 +646,6 @@ function M:visitMethod(cls, cur)
     end
 
     local optional = false
-    local hasCallback = false
     exps[#exps + 1] = fn .. '('
     for i, arg in ipairs(cur:arguments()) do
         local type = arg:type():name()
@@ -642,7 +655,7 @@ function M:visitMethod(cls, cur)
             exps[#exps + 1] = ', '
         end
         if funcType then
-            hasCallback = true
+            callbackType = 'ARG'
             type = funcType
             if attr.NULLABLE ~= false then
                 exps[#exps + 1] = '@nullable '
@@ -670,7 +683,7 @@ function M:visitMethod(cls, cur)
     if self.conf.EXCLUDE_PASS(cls.CPPCLS, fn, decl) then
         return
     else
-        return decl, hasCallback
+        return decl, callbackType
     end
 end
 
@@ -779,7 +792,7 @@ function M:visitClass(cur)
                 (kind == 'Constructor' and (conf.EXCLUDE['new'] or cur:isAbstract())) then
                 goto continue
             end
-            local func, hasCallback = self:visitMethod(cls, c)
+            local func, callbackType = self:visitMethod(cls, c)
             if func then
                 if kind == 'FunctionDecl' then
                     func = 'static ' .. func
@@ -791,7 +804,7 @@ function M:visitClass(cur)
                     FUNC = func,
                     NAME = fn,
                     ARGS = #c:arguments(),
-                    HAS_CALLBACK = hasCallback,
+                    CALLBACK_TYPE = callbackType,
                     PROTOTYPE = displayName,
                 }
             end
@@ -848,7 +861,9 @@ function M:visit(cur)
     elseif kind == 'TypedefDecl' then
         local c = children[1]
         if not c or c:kind() ~= 'UnexposedAttr' then
-            self.aliases[cur:type():name()] = cur:typedefType():name()
+            local alias = cur:type():name()
+            local name = cur:typedefType():name()
+            self.aliases[alias] = self.aliases[name] or name
         end
     else
         for _, c in ipairs(children) do
