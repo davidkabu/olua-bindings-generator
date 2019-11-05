@@ -669,7 +669,11 @@ function M:visitFieldDecl(cls, cur)
 
     local type = self:parseFunctionType(cur)
     if type then
-        exps[#exps + 1] = '@nullable @local '
+        exps[#exps + 1] = '@nullable '
+        local attr = cls.CONF.ATTR[cur:name()] or {}
+        if attr.LOCAL ~= false then
+            exps[#exps + 1] = '@local '
+        end
     else
         type = cur:type():name()
     end
