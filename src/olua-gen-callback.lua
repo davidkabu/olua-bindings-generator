@@ -107,7 +107,7 @@ function olua.genCallback(cls, fi, write)
     local TAG_MAKER = genCallbackTag(cls, fi, write)
     local CALLBACK_STORE_OBJ
     local TAG_STORE
-   
+
     local enablepool = false
 
     local CALLBACK = {
@@ -123,28 +123,39 @@ function olua.genCallback(cls, fi, write)
         INJECT_AFTER = olua.newarray(fi.INJECT.CALLBACK_AFTER),
     }
 
-    for _, v in ipairs(ai.CALLBACK.ARGS) do
-        if v.ATTR.LOCAL then
-            CALLBACK.PUSH_ARGS:push( "size_t last = olua_push_objpool(L);")
-            CALLBACK.POP_OBJPOOL = format([[
-                //pop stack value
-                olua_pop_objpool(L, last);
-            ]])
-           break
+    if ai.ATTR.LOCAL then
+        CALLBACK.PUSH_ARGS:push( "size_t last = olua_push_objpool(L);")
+        CALLBACK.PUSH_ARGS:push("olua_enable_objpool(L);")
+        CALLBACK.POP_OBJPOOL = format([[
+            //pop stack value
+            olua_pop_objpool(L, last);
+        ]])
+    else
+        for _, v in ipairs(ai.CALLBACK.ARGS) do
+            if v.ATTR.LOCAL then
+                CALLBACK.PUSH_ARGS:push( "size_t last = olua_push_objpool(L);")
+                CALLBACK.POP_OBJPOOL = format([[
+                    //pop stack value
+                    olua_pop_objpool(L, last);
+                ]])
+            break
+            end
         end
     end
 
     for i, v in ipairs(ai.CALLBACK.ARGS) do
         local ARG_NAME = 'arg' .. i
 
-        if v.ATTR.LOCAL then
-            if not enablepool then
-                enablepool = true
-                CALLBACK.PUSH_ARGS:push("olua_enable_objpool(L);")
+        if not ai.ATTR.LOCAL then
+            if v.ATTR.LOCAL then
+                if not enablepool then
+                    enablepool = true
+                    CALLBACK.PUSH_ARGS:push("olua_enable_objpool(L);")
+                end
+            elseif enablepool then
+                enablepool = false
+                CALLBACK.PUSH_ARGS:push("olua_disable_objpool(L);")
             end
-        elseif enablepool then
-            enablepool = false
-            CALLBACK.PUSH_ARGS:push("olua_disable_objpool(L);")
         end
 
         olua.genPushExp(v, ARG_NAME, CALLBACK)
@@ -156,9 +167,13 @@ function olua.genCallback(cls, fi, write)
         olua.nowarning(SPACE)
     end
 
-    if enablepool then
+    if ai.ATTR.LOCAL then
         CALLBACK.PUSH_ARGS:push("olua_disable_objpool(L);")
-        enablepool = false
+    else
+        if enablepool then
+            CALLBACK.PUSH_ARGS:push("olua_disable_objpool(L);")
+            enablepool = false
+        end
     end
 
     if fi.CALLBACK_OPT.CALLONCE then
@@ -251,13 +266,13 @@ function olua.genCallback(cls, fi, write)
                 ${CALLBACK.INJECT_BEFORE}
 
                 olua_callback(L, callback_store_obj, func.c_str(), ${CALLBACK.NUM_ARGS});
-                
+
                 ${CALLBACK.CHECK_RESULT}
 
                 ${CALLBACK.INJECT_AFTER}
 
                 ${CALLBACK.REMOVE_CALLBACK}
-                
+
                 ${CALLBACK.POP_OBJPOOL}
                 lua_settop(L, top);
             }

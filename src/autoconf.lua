@@ -359,7 +359,7 @@ function M:writeClass()
             end
             self:writeLine(']]')
             for _, fn in ipairs(cls.VARS) do
-                self:writeLine("cls.var('%s', [[%s]])", fn.NAME, fn.SNIPPET)
+                self:writeLine("cls.var('%s', [[%s]])", cls.CONF.LUANAME(fn.NAME), fn.SNIPPET)
             end
             self:writeConfEnum(cls)
             self:writeConfFunc(cls)
@@ -634,10 +634,21 @@ function M:visitMethod(cls, cur)
     exps[#exps + 1] = ')'
 
     local decl = table.concat(exps, '')
-    if self.conf.EXCLUDE_PATTERN(cls.CPPCLS, cur:name(), decl) then
+    if self.conf.EXCLUDE_PASS(cls.CPPCLS, cur:name(), decl) then
         return
     else
         return decl
+    end
+end
+
+function M:parseFunctionType(cur)
+    local typename = cur:type():name()
+    local typedef = cur:type():declaration():typedefType()
+    typedef = typedef and typedef:name() or ''
+    if typename:find('std::function') then
+        return typename
+    elseif typedef:find('std::function') then
+        return typedef
     end
 end
 
@@ -656,7 +667,12 @@ function M:visitFieldDecl(cls, cur)
         exps[#exps + 1] = '@optional '
     end
 
-    local type = cur:type():name()
+    local type = self:parseFunctionType(cur)
+    if type then
+        exps[#exps + 1] = '@nullable @local '
+    else
+        type = cur:type():name()
+    end
     exps[#exps + 1] = type
     if not string.find(type, '[*&]$') then
         exps[#exps + 1] = ' '
@@ -665,7 +681,7 @@ function M:visitFieldDecl(cls, cur)
     exps[#exps + 1] = cur:name()
 
     local decl = table.concat(exps, '')
-    if self.conf.EXCLUDE_PATTERN(cls.CPPCLS, cur:name(), decl) then
+    if self.conf.EXCLUDE_PASS(cls.CPPCLS, cur:name(), decl) then
         return
     else
         return {NAME = cur:name(), SNIPPET = decl}

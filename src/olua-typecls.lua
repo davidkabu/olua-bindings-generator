@@ -180,6 +180,7 @@ local function parseAttr(str)
                 break
             end
         end
+        str = string.gsub(str, '^ *', '')
     end
     str, static = string.gsub(str, '^ *static *', '')
     attr.STATIC = static > 0

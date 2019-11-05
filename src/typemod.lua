@@ -52,7 +52,7 @@ return function (name)
         EXCLUDE_TYPE = {},
         TYPEDEFS = {},
         NAME = name,
-        EXCLUDE_PATTERN = function () end
+        EXCLUDE_PASS = function () end,
     }
 
     module.EXCLUDE_TYPE = command(function (_, tn)
@@ -67,6 +67,7 @@ return function (name)
         local cls = {
             CPPCLS = classname,
             INDEX = INDEX,
+            LUANAME = function (n) return n end,
         }
         INDEX = INDEX + 1
         module.CLASSES[classname] = cls
