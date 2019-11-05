@@ -123,7 +123,17 @@ function olua.genCallback(cls, fi, write)
         INJECT_AFTER = olua.newarray(fi.INJECT.CALLBACK_AFTER),
     }
 
+    local localBlock = false
+
     if ai.ATTR.LOCAL then
+        for _, v in ipairs(ai.CALLBACK.ARGS) do
+            if not olua.isvaluetype(v.TYPE) then
+                localBlock = true
+            end
+        end
+    end
+
+    if localBlock then
         CALLBACK.PUSH_ARGS:push( "size_t last = olua_push_objpool(L);")
         CALLBACK.PUSH_ARGS:push("olua_enable_objpool(L);")
         CALLBACK.POP_OBJPOOL = format([[
@@ -138,7 +148,7 @@ function olua.genCallback(cls, fi, write)
                     //pop stack value
                     olua_pop_objpool(L, last);
                 ]])
-            break
+                break
             end
         end
     end
@@ -146,7 +156,7 @@ function olua.genCallback(cls, fi, write)
     for i, v in ipairs(ai.CALLBACK.ARGS) do
         local ARG_NAME = 'arg' .. i
 
-        if not ai.ATTR.LOCAL then
+        if not localBlock then
             if v.ATTR.LOCAL then
                 if not enablepool then
                     enablepool = true
@@ -167,7 +177,7 @@ function olua.genCallback(cls, fi, write)
         olua.nowarning(SPACE)
     end
 
-    if ai.ATTR.LOCAL then
+    if localBlock then
         CALLBACK.PUSH_ARGS:push("olua_disable_objpool(L);")
     else
         if enablepool then
