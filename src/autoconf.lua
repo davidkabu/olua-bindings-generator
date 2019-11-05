@@ -342,11 +342,34 @@ function M:writeClass()
                 self:writeLine(']]')
             end
             self:writeLine('cls.funcs [[')
+            local callbacks = {}
             for _, fn in ipairs(cls.FUNCS) do
                 if shouldExportFunc(cls.SUPERCLS, fn) then
-                    self:writeLine('    ' .. fn.FUNC)
-                    tryAddProp(fn)
+                    if not fn.HAS_CALLBACK then
+                        self:writeLine('    ' .. fn.FUNC)
+                        tryAddProp(fn)
+                    else
+                        local arr = callbacks[fn.NAME]
+                        if not arr then
+                            arr = {}
+                            callbacks[#callbacks + 1] = arr
+                            callbacks[fn.NAME] = arr
+                        end
+                        arr[#arr + 1] = fn
+                    end
                 end
+            end
+            for _, v in ipairs(callbacks) do
+                local FUNCS = {}
+                for i, fn in ipairs(v) do
+                    FUNCS[i] = fn.FUNC
+                end
+                local tag = v[1].NAME:gsub('^set', ''):gsub('^get', '')
+                cls.CONF.CALLBACK {
+                    FUNCS = FUNCS,
+                    TAG_MAKER = olua.format 'olua_makecallbacktag("${tag}")',
+                    TAG_MODE = 'OLUA_TAG_REPLACE',
+                }
             end
             for _, cb in ipairs(cls.CONF.CALLBACK) do
                 if #cb.FUNCS == 1 and (string.match(cb.FUNCS[1], '%(%) *$')
@@ -526,17 +549,14 @@ function M:shouldExcludeTypeName(name)
     end
 end
 
-function M:shouldExcludeType(type, ignoreCallback)
+function M:shouldExcludeType(type)
     local name = type:name()
-    if ignoreCallback and string.find(name, 'std::function') then
-        return true
-    end
     local rawname = string.gsub(name, '^const *', '')
     rawname = string.gsub(rawname, ' *&$', '')
     if self:shouldExcludeTypeName(rawname) then
         return true
     elseif name ~= type:canonical():name() then
-        return self:shouldExcludeType(type:canonical(), ignoreCallback)
+        return self:shouldExcludeType(type:canonical())
     end
 end
 
@@ -579,7 +599,7 @@ function M:visitMethod(cls, cur)
     end
 
     if cur:kind() ~= 'Constructor' then
-        if self:shouldExcludeType(cur:resultType(), true) then
+        if self:shouldExcludeType(cur:resultType()) then
             return
         end
     end
@@ -591,12 +611,13 @@ function M:visitMethod(cls, cur)
     end
 
     for _, arg in ipairs(cur:arguments()) do
-        if self:shouldExcludeType(arg:type(), true) then
+        if self:shouldExcludeType(arg:type()) then
             return
         end
     end
 
-    local attr = cls.CONF.ATTR[cur:name()] or {}
+    local fn = cur:name()
+    local attr = cls.CONF.ATTR[fn] or {}
     local exps = {}
 
     exps[#exps + 1] = attr.RET and (attr.RET .. ' ') or nil
@@ -611,12 +632,24 @@ function M:visitMethod(cls, cur)
     end
 
     local optional = false
-    exps[#exps + 1] = cur:name() .. '('
+    local hasCallback = false
+    exps[#exps + 1] = fn .. '('
     for i, arg in ipairs(cur:arguments()) do
         local type = arg:type():name()
+        local funcType = self:toFuncType(arg:type())
         local ARGN = 'ARG' .. i
         if i > 1 then
             exps[#exps + 1] = ', '
+        end
+        if funcType then
+            hasCallback = true
+            type = funcType
+            if attr.NULLABLE ~= false then
+                exps[#exps + 1] = '@nullable '
+            end
+            if attr.LOCAL ~= false then
+                exps[#exps + 1] = '@local '
+            end
         end
         if self:hasDefaultValue(arg) then
             exps[#exps + 1] = '@optional '
@@ -634,21 +667,24 @@ function M:visitMethod(cls, cur)
     exps[#exps + 1] = ')'
 
     local decl = table.concat(exps, '')
-    if self.conf.EXCLUDE_PASS(cls.CPPCLS, cur:name(), decl) then
+    if self.conf.EXCLUDE_PASS(cls.CPPCLS, fn, decl) then
         return
     else
-        return decl
+        return decl, hasCallback
     end
 end
 
-function M:parseFunctionType(cur)
-    local typename = cur:type():name()
-    local typedef = cur:type():declaration():typedefType()
-    typedef = typedef and typedef:name() or ''
-    if typename:find('std::function') then
-        return typename
-    elseif typedef:find('std::function') then
-        return typedef
+function M:toFuncType(type)
+    local name = type:name()
+    if name:find('std::function') then
+        return name
+    else
+        local rawname = string.gsub(name, "^const *", '')
+        rawname = string.gsub(rawname, " *[*&]$", '')
+        local alias = self.aliases[rawname]
+        if alias and alias:find('std::function') then
+            return string.gsub(name, rawname, alias)
+        end
     end
 end
 
@@ -667,7 +703,7 @@ function M:visitFieldDecl(cls, cur)
         exps[#exps + 1] = '@optional '
     end
 
-    local type = self:parseFunctionType(cur)
+    local type = self:toFuncType(cur:type())
     if type then
         exps[#exps + 1] = '@nullable '
         local attr = cls.CONF.ATTR[cur:name()] or {}
@@ -743,7 +779,7 @@ function M:visitClass(cur)
                 (kind == 'Constructor' and (conf.EXCLUDE['new'] or cur:isAbstract())) then
                 goto continue
             end
-            local func = self:visitMethod(cls, c)
+            local func, hasCallback = self:visitMethod(cls, c)
             if func then
                 if kind == 'FunctionDecl' then
                     func = 'static ' .. func
@@ -755,6 +791,7 @@ function M:visitClass(cur)
                     FUNC = func,
                     NAME = fn,
                     ARGS = #c:arguments(),
+                    HAS_CALLBACK = hasCallback,
                     PROTOTYPE = displayName,
                 }
             end
@@ -767,6 +804,11 @@ function M:visitClass(cur)
 end
 
 function M:visit(cur)
+    local access = cur:access()
+    if access == 'private' or access == 'protected' then
+        return
+    end
+
     local kind = cur:kind()
     local children = cur:children()
     local shouldExport = self.conf.CLASSES[cur:fullname()] and not self.visited[cur:fullname()]
@@ -802,6 +844,11 @@ function M:visit(cur)
             if shouldExport then
                 self:visitEnum(cur)
             end
+        end
+    elseif kind == 'TypedefDecl' then
+        local c = children[1]
+        if not c or c:kind() ~= 'UnexposedAttr' then
+            self.aliases[cur:type():name()] = cur:typedefType():name()
         end
     else
         for _, c in ipairs(children) do
