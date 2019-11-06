@@ -7,16 +7,20 @@ end
 local function addcmd(cls)
     cls.ATTR = command(function (_, name, attr)
         cls.ATTR[name] = attr
+        return cls
     end)
     cls.ALIAS = command(function (_, name, alias)
         cls.ALIAS[#cls.ALIAS + 1] = {NAME = name, ALIAS = alias}
+        return cls
     end)
     cls.EXCLUDE = command(function (_, func)
         cls.EXCLUDE[func] = true
+        return cls
     end)
     cls.FUNC = command(function (_, func, snippet)
         cls.EXCLUDE[func] = true
         cls.FUNC[#cls.FUNC + 1] = {FUNC = func, SNIPPET = snippet}
+        return cls
     end)
     cls.CALLBACK = command(function (_, opt)
         local func = olua.funcname(opt.FUNCS[1])
@@ -24,21 +28,26 @@ local function addcmd(cls)
         cls.EXCLUDE[func] = true
         opt.NAME = func
         cls.CALLBACK[#cls.CALLBACK + 1] = opt
+        return cls
     end)
     cls.PROP = command(function (_, name, get, set)
         cls.PROP[#cls.PROP + 1] = {NAME = name, GET = get, SET = set}
+        return cls
     end)
     cls.VAR = command(function (_, name, snippet)
         local varname = olua.funcname(snippet)
         assert(#varname > 0, 'no variable name')
         cls.EXCLUDE[varname] = true
         cls.VAR[#cls.VAR + 1] = {NAME = name, SNIPPET = snippet}
+        return cls
     end)
     cls.ENUM = command(function (_, name, value)
         cls.ENUM[#cls.ENUM + 1] = {NAME = name, VALUE = value}
+        return cls
     end)
     cls.INJECT = command(function (_, names, codes)
         cls.INJECT[#cls.INJECT + 1] = {NAMES = names, CODES = codes}
+        return cls
     end)
     return cls
 end

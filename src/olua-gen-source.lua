@@ -53,7 +53,6 @@ local function genLuaopen(module, write)
         if cls.DEFIF then
             REQUIRES[#REQUIRES + 1] = cls.DEFIF
         end
-        olua.nowarning(CPPCLS_PATH)
         REQUIRES[#REQUIRES + 1] = format([[
             olua_require(L, "${cls.LUACLS}", luaopen_${CPPCLS_PATH});
         ]])

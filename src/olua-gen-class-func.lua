@@ -6,13 +6,12 @@ local function genSnippetFunc(cls, fi, write)
     local CPPCLS_PATH = olua.topath(cls.CPPCLS)
     local CPPFUNC = fi.CPPFUNC
     local CPPFUNC_SNIPPET = fi.CPPFUNC_SNIPPET
-    olua.nowarning(CPPCLS_PATH, CPPFUNC, CPPFUNC_SNIPPET)
     CPPFUNC_SNIPPET = string.gsub(CPPFUNC_SNIPPET, '^[\n ]*{',
         '{\n    olua_startinvoke(L);\n')
     CPPFUNC_SNIPPET = string.gsub(CPPFUNC_SNIPPET, '(\n)([ ]*)(return )', function (lf, indent, ret)
         local s = format([[
             ${lf}
-            
+
             ${indent}olua_endinvoke(L);
 
             ${indent}${ret}
@@ -49,7 +48,6 @@ function olua.genDeclExp(arg, name, out)
             ${arg.TYPE.DECLTYPE}${SPACE}${ARG_NAME}${INITIALVALUE};       ${VARNAME}
         ]]))
     end
-    olua.nowarning(SPACE, ARG_NAME, VARNAME)
 end
 
 function olua.genCheckExp(arg, name, i, out)
@@ -60,7 +58,6 @@ function olua.genCheckExp(arg, name, i, out)
     if (arg.DEFAULT or arg.ATTR.NULLABLE) and not next(arg.CALLBACK or {}) then
         local OLUA_OPT_VALUE = olua.convfunc(arg.TYPE, 'opt')
         local DEFAULT = arg.DEFAULT or "nullptr"
-        olua.nowarning(OLUA_OPT_VALUE, DEFAULT)
         if olua.ispointee(arg.TYPE) then
             out.CHECK_ARGS:push(format([[
                 ${OLUA_OPT_VALUE}(L, ${ARGN}, (void **)&${ARG_NAME}, "${arg.TYPE.LUACLS}", ${DEFAULT});
@@ -87,7 +84,6 @@ function olua.genCheckExp(arg, name, i, out)
                 local SUBTYPE_CHECK_FUNC = olua.convfunc(SUBTYPE, 'check')
                 local SUBTYPE_CAST = olua.typecast(SUBTYPE, true)
                 local CHECK_VALUE = format(arg.TYPE.CHECK_VALUE)
-                olua.nowarning(SUBTYPE_CHECK_FUNC, SUBTYPE_CAST, CHECK_VALUE)
                 out.CHECK_ARGS:push(format([[
                     luaL_checktype(L, ${ARGN}, LUA_TTABLE);
                     ${CHECK_VALUE}
@@ -105,7 +101,6 @@ function olua.genCheckExp(arg, name, i, out)
         ]]))
     end
 
-    olua.nowarning(ARG_NAME, ARGN, OLUA_CHECK_VALUE)
 end
 
 function olua.genRefExp(fi, arg, i, out)
@@ -153,7 +148,6 @@ function olua.genRefExp(fi, arg, i, out)
         error('no support ref action: ' .. REF)
     end
 
-    olua.nowarning(ARGN, REFNAME, WHERE)
 end
 
 function olua.genUnrefExp(fi, arg, i, out)
@@ -201,7 +195,6 @@ function olua.genUnrefExp(fi, arg, i, out)
         error('no support ref action: ' .. UNREF)
     end
 
-    olua.nowarning(ARGN, REFNAME, WHERE)
 end
 
 local function genFuncArgs(cls, fi, func)
@@ -211,7 +204,6 @@ local function genFuncArgs(cls, fi, func)
         func.IDX = func.IDX + 1
         local ti = olua.typeinfo(cls.CPPCLS .. "*")
         local OLUA_TO_TYPE = olua.convfunc(ti, 'to')
-        olua.nowarning(OLUA_TO_TYPE)
         func.DECL_ARGS:push(format([[
             ${cls.CPPCLS} *self = nullptr;
         ]]))
@@ -261,7 +253,6 @@ function olua.genPushExp(arg, name, out)
                 local SUBTYPE_PUSH_FUNC = olua.convfunc(SUBTYPE, 'push')
                 local TYPE_CAST = string.gsub(arg.DECLTYPE, '^const _*', '')
                 out.PUSH_ARGS:push(format(arg.TYPE.PUSH_VALUE))
-                olua.nowarning(ARG_NAME, SUBTYPE_CAST, SUBTYPE_PUSH_FUNC, TYPE_CAST)
             end
         end
     else
@@ -276,7 +267,6 @@ function olua.genPushExp(arg, name, out)
                 TYPE_CAST = '&'
             end
         end
-        olua.nowarning(OLUA_PUSH_VALUE, TYPE_CAST)
         out.PUSH_ARGS:push(format('${OLUA_PUSH_VALUE}(L, ${TYPE_CAST}${ARG_NAME});'))
     end
 end
@@ -302,7 +292,6 @@ local function genFuncRet(cls, fi, func)
             func.NUM_RET = "num_ret"
         end
 
-        olua.nowarning(SPACE)
     end
 
     olua.genRefExp(fi, fi.RET, -1, func)
@@ -367,7 +356,6 @@ local function genOneFunc(cls, fi, write, funcidx, exported)
         if fi.CALLBACK_OPT.NEW then
             local DECLTYPE = string.gsub(fi.RET.TYPE.DECLTYPE, ' *%*$', '')
             local LUACLS = fi.RET.TYPE.LUACLS
-            olua.nowarning(DECLTYPE, LUACLS)
             FUNC.CALLBACK = format(fi.CALLBACK_OPT.NEW) .. '\n\n' .. FUNC.CALLBACK
             FUNC.RET_EXP = ''
             CALLER = 'self->'
@@ -392,7 +380,6 @@ local function genOneFunc(cls, fi, write, funcidx, exported)
 
     FUNC.CALLER_ARGS = FUNC.CALLER_ARGS:tostring(', ')
 
-    olua.nowarning(CPPCLS_PATH, FUNC_INDEX, CPPFUNC, CALLER, ARGS_BEGIN, ARGS_END)
     write(format([[
         static int _${CPPCLS_PATH}_${fi.CPPFUNC}${FUNC_INDEX}(lua_State *L)
         {
@@ -453,7 +440,6 @@ local function genTestAndCall(cls, fns)
                     TEST_NULL = ' ' .. format('|| olua_isnil(L, ${ARGN})')
                 end
 
-                olua.nowarning(ARGN, TEST_NULL, OLUA_IS_VALUE)
                 if olua.ispointee(ai.TYPE) then
                     TEST_ARGS[#TEST_ARGS + 1] = format([[
                         (${OLUA_IS_VALUE}(L, ${ARGN}, "${ai.TYPE.LUACLS}")${TEST_NULL})
@@ -466,7 +452,6 @@ local function genTestAndCall(cls, fns)
             end
 
             TEST_ARGS = table.concat(TEST_ARGS, " && ")
-            olua.nowarning(CPPCLS_PATH, TEST_ARGS)
             CALL_CHUNK[#CALL_CHUNK + 1] = {
                 MAX_VARS = MAX_VARS,
                 EXP1 = format([[
@@ -529,7 +514,6 @@ local function genMultiFunc(cls, fis, write, exported)
         local fns = getFuncNArgs(cls, fis, i)
         if #fns > 0 then
             local TEST_AND_CALL = genTestAndCall(cls, fns)
-            olua.nowarning(TEST_AND_CALL)
             IF_CHUNK[#IF_CHUNK + 1] = format([[
                 if (num_args == ${i}) {
                     ${TEST_AND_CALL}
@@ -539,7 +523,6 @@ local function genMultiFunc(cls, fis, write, exported)
     end
 
     IF_CHUNK = table.concat(IF_CHUNK, "\n\n")
-    olua.nowarning(CPPCLS_PATH, SUBONE, IF_CHUNK)
     write(format([[
         static int _${CPPCLS_PATH}_${CPPFUNC}(lua_State *L)
         {

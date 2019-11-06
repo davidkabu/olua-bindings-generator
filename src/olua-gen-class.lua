@@ -122,7 +122,6 @@ local function genClassOpen(cls, write)
     for _, fis in ipairs(cls.FUNCS) do
         local CPPFUNC = fis[1].CPPFUNC
         local LUAFUNC = fis[1].LUAFUNC
-        olua.nowarning(CPPFUNC, LUAFUNC)
         FUNCS[#FUNCS + 1] = format([[
             oluacls_func(L, "${LUAFUNC}", _${CPPCLS_PATH}_${CPPFUNC});
         ]])
@@ -137,7 +136,6 @@ local function genClassOpen(cls, write)
         if pi.SET then
             FUNC_SET = string.format("_%s_%s", CPPCLS_PATH, pi.SET.CPPFUNC)
         end
-        olua.nowarning(FUNC_GET, FUNC_SET)
         FUNCS[#FUNCS + 1] = format([[
             oluacls_prop(L, "${pi.PROP_NAME}", ${FUNC_GET}, ${FUNC_SET});
         ]])
@@ -149,7 +147,6 @@ local function genClassOpen(cls, write)
         if vi.SET and vi.SET.CPPFUNC then
            FUNC_SET = string.format("_%s_%s", CPPCLS_PATH, vi.SET.CPPFUNC)
         end
-        olua.nowarning(FUNC_GET, FUNC_SET)
         FUNCS[#FUNCS + 1] = format([[
             oluacls_prop(L, "${vi.VARNAME}", ${FUNC_GET}, ${FUNC_SET});
         ]])
@@ -171,7 +168,6 @@ local function genClassOpen(cls, write)
             CONST_FUNC = "oluacls_const_string"
             CONST_VALUE = olua.stringfy(CONST_VALUE)
         end
-        olua.nowarning(CONST_FUNC)
         FUNCS[#FUNCS + 1] = format([[
             ${CONST_FUNC}(L, "${ci.CONST_NAME}", ${CONST_VALUE});
         ]])
@@ -181,7 +177,6 @@ local function genClassOpen(cls, write)
         return a.ENUM_NAME < b.ENUM_NAME
     end)
     for _, ei in ipairs(cls.ENUMS) do
-        olua.nowarning(ei)
         FUNCS[#FUNCS + 1] = format([[
             oluacls_const_integer(L, "${ei.ENUM_NAME}", (lua_Integer)${ei.ENUM_VALUE});
         ]])
@@ -205,7 +200,6 @@ local function genClassOpen(cls, write)
         end
     end
 
-    olua.nowarning(REG_LUATYPE, SUPRECLS)
     write(format([[
         static int luaopen_${CPPCLS_PATH}(lua_State *L)
         {

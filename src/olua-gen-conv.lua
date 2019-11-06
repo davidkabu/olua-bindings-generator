@@ -27,7 +27,6 @@ local function genConvHeader(module)
             ]])
         end
         DECL_FUNCS[#DECL_FUNCS + 1] = ""
-        olua.nowarning(CPPCLS_PATH)
     end
 
     DECL_FUNCS = table.concat(DECL_FUNCS, "\n")
@@ -47,7 +46,6 @@ local function genConvHeader(module)
 
         #endif
     ]]))
-    olua.nowarning(HEADER, HEADER_INCLUDES)
 end
 
 local function getinitvalue(ti)
@@ -90,7 +88,6 @@ local function genPushFunc(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH, NUM_ARGS)
 end
 
 local function gen_check_func(cv, write)
@@ -126,7 +123,6 @@ local function gen_check_func(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH)
 end
 
 local function gen_opt_func(cv, write)
@@ -168,7 +164,6 @@ local function gen_opt_func(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH)
 end
 
 local function gen_pack_func(cv, write)
@@ -182,7 +177,6 @@ local function gen_pack_func(cv, write)
         ARGS_CHUNK[#ARGS_CHUNK + 1] = format([[
             value->${pi.VARNAME} = (${pi.TYPE.CPPCLS})${OLUA_PACK_VALUE}(L, idx + ${ARG_N});
         ]])
-        olua.nowarning(ARG_N)
     end
 
     ARGS_CHUNK = table.concat(ARGS_CHUNK, "\n")
@@ -197,7 +191,6 @@ local function gen_pack_func(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH)
 end
 
 local function genUnpackFunc(cv, write)
@@ -216,7 +209,6 @@ local function genUnpackFunc(cv, write)
                 ${OLUA_UNPACK_VALUE}(L, (${pi.TYPE.DECLTYPE})value->${pi.VARNAME});
             ]])
         end
-        olua.nowarning(OLUA_UNPACK_VALUE)
     end
 
     ARGS_CHUNK = table.concat(ARGS_CHUNK, "\n")
@@ -235,7 +227,6 @@ local function genUnpackFunc(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH, NUM_ARGS)
 end
 
 local function genIsFunc(cv, write)
@@ -256,7 +247,6 @@ local function genIsFunc(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH)
 end
 
 local function genIsPackFunc(cv, write)
@@ -268,7 +258,6 @@ local function genIsPackFunc(cv, write)
         TEST_TYPE[#TEST_TYPE + 1] = format([[
             ${OLUA_IS_VALUE}(L, idx + ${VIDX})
         ]])
-        olua.nowarning(OLUA_IS_VALUE, VIDX)
     end
     TEST_TYPE = table.concat(TEST_TYPE, " && ")
     write(format([[
@@ -278,7 +267,6 @@ local function genIsPackFunc(cv, write)
         }
     ]]))
     write('')
-    olua.nowarning(CPPCLS_PATH)
 end
 
 local function genFuncs(cv, write)

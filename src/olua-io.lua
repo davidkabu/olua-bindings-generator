@@ -41,10 +41,6 @@ function olua.newarray(...)
     return setmetatable({...}, {__index = mt})
 end
 
--- suppress lua check warning
-function olua.nowarning()
-end
-
 local function lookup(level, key)
     assert(key and #key > 0, key)
 
@@ -81,7 +77,7 @@ function olua.format(expr, indent)
     expr = string.gsub(expr, '^[ ]*', '')  -- trim head space
     expr = string.gsub(expr, '\n' .. space, '\n' .. indent)
     expr = indent .. expr
-    
+
     local function eval(expr)
         return string.gsub(expr, "([ ]*)(${[%w_.]+})", function (indent, str)
             local key = string.match(str, "[%w_]+")
@@ -147,7 +143,7 @@ function olua.format(expr, indent)
 
     expr = string.gsub(expr, '{\n\n', '{\n')
     expr = string.gsub(expr, '\n\n}', '\n}')
-    
+
     return expr
 end
 

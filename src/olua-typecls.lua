@@ -368,7 +368,6 @@ local function genFuncPrototype(cls, fi)
         ARGS_DECL[#ARGS_DECL + 1] = (v.TYPE.SUBTYPES or next(v.CALLBACK)) and v.DECLTYPE or v.TYPE.CPPCLS
     end
     ARGS_DECL = table.concat(ARGS_DECL, ", ")
-    olua.nowarning(RET_DECL, CPPFUNC, STATIC, ARGS_DECL)
     fi.PROTOTYPE = format([[
         ${STATIC}${RET_DECL} ${CPPFUNC}(${ARGS_DECL})
     ]])

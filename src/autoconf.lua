@@ -71,8 +71,6 @@ function M:parse(path)
     self:writeLine('local cls = nil')
     self:writeLine('local M = {}')
     self:writeLine('')
-    self:writeLine('olua.nowarning(typeconv, typecls, cls)')
-    self:writeLine('')
     self:writeHeader()
     self:writeClass()
     self:writeTypedef()
@@ -118,7 +116,6 @@ function M:writeHeader()
     if #self.conf.CONVS > 0 then
         self:writeLine('M.CONVS = {')
         for _, v in ipairs(self.conf.CONVS) do
-            olua.nowarning(v)
             self:writeLine(format([=[
                 typeconv {
                     CPPCLS = '${v.CPPCLS}',
@@ -147,8 +144,6 @@ function M:writeTypedef()
     writeLine('local olua = require "olua"')
     writeLine('local typedef = olua.typedef')
     writeLine('')
-    writeLine('olua.nowarning(typedef)')
-    writeLine('')
     for _, td in ipairs(self.conf.TYPEDEFS) do
         local arr = {}
         for k, v in pairs(td) do
@@ -173,7 +168,6 @@ function M:writeTypedef()
     for _, v in ipairs(self.conf.CONVS) do
         local CPPCLS_PATH = string.gsub(v.CPPCLS, '::', '_')
         local VARS = v.VARS or 'nil'
-        olua.nowarning(CPPCLS_PATH, VARS)
         file:write(format([[
             typedef {
                 CPPCLS = '${v.CPPCLS}',
@@ -206,7 +200,6 @@ function M:writeTypedef()
     for _, v in ipairs(enums) do
         local CPPCLS = v
         local LUACLS = self.conf.MAKE_LUACLS(v)
-        olua.nowarning(CPPCLS, LUACLS)
         file:write(format([[
             typedef {
                 CPPCLS = '${CPPCLS}',
@@ -220,7 +213,6 @@ function M:writeTypedef()
     for _, v in ipairs(classes) do
         local CPPCLS = v
         local LUACLS = self.conf.MAKE_LUACLS(v)
-        olua.nowarning(CPPCLS, LUACLS)
         file:write(format([[
             typedef {
                 CPPCLS = '${CPPCLS} *',

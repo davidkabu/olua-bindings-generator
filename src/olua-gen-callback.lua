@@ -51,7 +51,6 @@ local function genRemoveCallback(cls, fi, write)
         void *callback_store_obj = (void *)${CALLBACK_STORE_OBJ};
         olua_removecallback(L, callback_store_obj, tag.c_str(), ${TAG_MODE});
     ]])
-    olua.nowarning(TAG_MODE, TAG_MAKER, CALLBACK_STORE_OBJ)
     return block
 end
 
@@ -73,7 +72,6 @@ local function genRetCallback(cls, fi, write)
         std::string tag = ${TAG_MAKER};
         olua_getcallback(L, callback_store_obj, tag.c_str(), ${TAG_MODE});
     ]])
-    olua.nowarning(TAG_MODE, TAG_MAKER, CALLBACK_STORE_OBJ)
     return block
 end
 
@@ -174,7 +172,6 @@ function olua.genCallback(cls, fi, write)
         CALLBACK.ARGS:push(format([[
             ${v.RAW_DECLTYPE}${SPACE}${ARG_NAME}
         ]]))
-        olua.nowarning(SPACE)
     end
 
     if localBlock then
@@ -225,7 +222,6 @@ function olua.genCallback(cls, fi, write)
             CALLBACK.RETURN_RESULT = "return ret;"
         end
 
-        olua.nowarning(OLUA_IS_VALUE)
     end
 
     TAG_STORE = getCallbackStore(fi) + 1
@@ -309,10 +305,8 @@ function olua.genCallback(cls, fi, write)
                 ${CALLBACK_ARG_NAME} = ${DEFAULT};
             }
         ]])
-        olua.nowarning(DEFAULT, OLUA_IS_VALUE, REMOVE_CALLBACK)
     end
 
-    olua.nowarning(CALLBACK_ARG_NAME, TAG_MAKER, CALLBACK_STORE_OBJ)
 
     return CALLBACK_CHUNK
 end

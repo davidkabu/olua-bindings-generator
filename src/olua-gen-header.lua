@@ -3,7 +3,6 @@ local olua = require "olua-io"
 function olua.genHeader(module)
     local HEADER = string.upper(module.NAME)
     local PATH = olua.format '${module.PATH}/lua_${module.NAME}.h'
-    olua.nowarning(HEADER)
     olua.write(PATH, olua.format([[
         //
         // AUTO BUILD, DON'T MODIFY!
