@@ -83,6 +83,12 @@ return function (name)
         return addcmd(cls)
     end
 
+    function module.typeonly(name)
+        local cls = module.typeconf(name)
+        cls.EXCLUDE '*'
+        return cls
+    end
+
     function module.typedef(info)
         module.TYPEDEFS[#module.TYPEDEFS + 1] = info
     end
