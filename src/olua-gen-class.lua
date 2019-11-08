@@ -208,7 +208,7 @@ local function genClassOpen(cls, write)
 
             ${REG_LUATYPE}
             oluacls_createclassproxy(L);
-            
+
             return 1;
         }
     ]]))

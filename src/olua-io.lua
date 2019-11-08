@@ -30,15 +30,25 @@ function olua.stringfy(value)
     end
 end
 
-function olua.newarray(...)
+function olua.newarray(sep, prefix, posfix)
     local mt = {}
-    function mt:push(v)
-        self[#self + 1] = v
+    mt.__index = mt
+
+    function mt:push(...)
+        for _, v in ipairs({...}) do
+            self[#self + 1] = v
+        end
+        return self
     end
-    function mt:tostring(sep)
-        return table.concat(self, sep or '\n')
+
+    function mt:__tostring()
+        sep = sep or '\n'
+        prefix = prefix or ''
+        posfix = posfix or ''
+        return prefix .. table.concat(self, sep) .. posfix
     end
-    return setmetatable({...}, {__index = mt})
+
+    return setmetatable({}, mt)
 end
 
 local function lookup(level, key)
@@ -115,8 +125,13 @@ function olua.format(expr, indent)
                 error("value not found for '" .. str .. "'")
             else
                 -- indent the value if value has multiline
-                if type(value) == 'table' and value.tostring then
-                    value = value:tostring()
+                if type(value) == 'table' then
+                    local mt = getmetatable(value)
+                    if mt and mt.__tostring then
+                        value = tostring(value)
+                    else
+                        error("no meta method '__tostring' for " .. str)
+                    end
                 end
                 value = string.gsub(value, '[\n]*$', '')
                 return indent .. string.gsub(tostring(value), '\n', '\n' .. indent)

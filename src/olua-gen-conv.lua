@@ -65,7 +65,7 @@ end
 local function genPushFunc(cv, write)
     local CPPCLS_PATH = olua.topath(cv.CPPCLS)
     local NUM_ARGS = #cv.PROPS
-    local OUT = {PUSH_ARGS = olua.newarray('')}
+    local OUT = {PUSH_ARGS = olua.newarray():push('')}
 
     for _, pi in ipairs(cv.PROPS) do
         local ARG_NAME = format('value->${pi.VARNAME}')

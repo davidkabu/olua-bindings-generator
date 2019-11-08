@@ -4,52 +4,110 @@ local function command(func)
     return setmetatable({}, {__call = func})
 end
 
-local function addcmd(cls)
-    cls.ATTR = command(function (_, name, attr)
-        cls.ATTR[name] = attr
-        return cls
-    end)
-    cls.ALIAS = command(function (_, name, alias)
-        cls.ALIAS[#cls.ALIAS + 1] = {NAME = name, ALIAS = alias}
-        return cls
-    end)
-    cls.EXCLUDE = command(function (_, func)
-        cls.EXCLUDE[func] = true
-        return cls
-    end)
-    cls.FUNC = command(function (_, func, snippet)
-        cls.EXCLUDE[func] = true
-        cls.FUNC[#cls.FUNC + 1] = {FUNC = func, SNIPPET = snippet}
-        return cls
-    end)
-    cls.CALLBACK = command(function (_, opt)
-        local func = olua.funcname(opt.FUNCS[1])
-        assert(#func > 0, 'no callback function name')
-        cls.EXCLUDE[func] = true
-        opt.NAME = func
-        cls.CALLBACK[#cls.CALLBACK + 1] = opt
-        return cls
-    end)
-    cls.PROP = command(function (_, name, get, set)
-        cls.PROP[#cls.PROP + 1] = {NAME = name, GET = get, SET = set}
-        return cls
-    end)
-    cls.VAR = command(function (_, name, snippet)
+local function createTable()
+    local t = {}
+    local arr = {}
+    local map = {}
+
+    function t:__index(key)
+        if type(key) == 'number' then
+            return arr[key]
+        else
+            return map[key]
+        end
+    end
+
+    function t:__newindex(key, value)
+        assert(type(key) == 'string', 'only support string field')
+        assert(not map[key], 'field conflict: ' .. key)
+        map[key] = value
+        arr[#arr + 1] = value
+    end
+
+    function t:__pairs()
+        return pairs(map)
+    end
+
+    function t:__ipairs()
+        return ipairs(arr)
+    end
+
+    function t:toarray()
+        return arr
+    end
+
+    return setmetatable(t, t)
+end
+
+local function typeconfCommand(cls)
+    local CMD = {}
+
+    function CMD.ATTR(name, attrs)
+        cls.ATTR[name] = attrs
+        return CMD
+    end
+
+    function CMD.ALIAS(name, alias)
+        cls.ALIAS[name] = {NAME = name, ALIAS = alias}
+        return CMD
+    end
+
+    function CMD.EXCLUDE(name)
+        cls.EXCLUDE[name] = true
+        return CMD
+    end
+
+    function CMD.FUNC(fn, snippet)
+        cls.EXCLUDE[fn] = true
+        cls.FUNC[fn] = {FUNC = fn, SNIPPET = snippet}
+        return CMD
+    end
+
+    function CMD.CALLBACK(cb)
+        if not cb.NAME then
+            cb.NAME = olua.funcname(cb.FUNCS[1])
+            cls.EXCLUDE[cb.NAME] = true
+        end
+        assert(#cb.NAME > 0, 'no callback function name')
+        cls.CALLBACK[cb.NAME] = cb
+        return CMD
+    end
+
+    function CMD.PROP(name, get, set)
+        cls.PROP[name] = {NAME = name, GET = get, SET = set}
+        return CMD
+    end
+
+    function CMD.VAR(name, snippet)
         local varname = olua.funcname(snippet)
         assert(#varname > 0, 'no variable name')
         cls.EXCLUDE[varname] = true
-        cls.VAR[#cls.VAR + 1] = {NAME = name, SNIPPET = snippet}
-        return cls
-    end)
-    cls.ENUM = command(function (_, name, value)
-        cls.ENUM[#cls.ENUM + 1] = {NAME = name, VALUE = value}
-        return cls
-    end)
-    cls.INJECT = command(function (_, names, codes)
-        cls.INJECT[#cls.INJECT + 1] = {NAMES = names, CODES = codes}
-        return cls
-    end)
-    return cls
+        cls.VAR[name or varname] = {NAME = name, SNIPPET = snippet}
+        return CMD
+    end
+
+    function CMD.ENUM(name, value)
+        cls.ENUM[name] = {NAME = name, VALUE = value}
+        return CMD
+    end
+
+    function CMD.INJECT(names, codes)
+        names = type(names) == 'string' and {names} or names
+        for _, n in ipairs(names) do
+            cls.INJECT[n] = {NAME = n, CODES = codes}
+        end
+        return CMD
+    end
+
+    function CMD.__index(_, key)
+        return cls[key]
+    end
+
+    function CMD.__newindex(_, key, value)
+        cls[key] = value
+    end
+
+    return setmetatable(CMD, CMD)
 end
 
 -- function typemod
@@ -61,12 +119,14 @@ return function (name)
         EXCLUDE_TYPE = {},
         TYPEDEFS = {},
         NAME = name,
-        EXCLUDE_PASS = function () end,
     }
 
     module.EXCLUDE_TYPE = command(function (_, tn)
         module.EXCLUDE_TYPE[tn] = true
     end)
+
+    function module.EXCLUDE_PASS()
+    end
 
     function module.include(path)
         loadfile(path)(module)
@@ -75,16 +135,25 @@ return function (name)
     function module.typeconf(classname)
         local cls = {
             CPPCLS = classname,
+            ATTR = createTable(),
+            ALIAS = createTable(),
+            EXCLUDE = createTable(),
+            FUNC = createTable(),
+            CALLBACK = createTable(),
+            PROP = createTable(),
+            VAR = createTable(),
+            ENUM = createTable(),
+            INJECT = createTable(),
             INDEX = INDEX,
             LUANAME = function (n) return n end,
         }
         INDEX = INDEX + 1
         module.CLASSES[classname] = cls
-        return addcmd(cls)
+        return typeconfCommand(cls)
     end
 
-    function module.typeonly(name)
-        local cls = module.typeconf(name)
+    function module.typeonly(classname)
+        local cls = module.typeconf(classname)
         cls.EXCLUDE '*'
         return cls
     end
@@ -98,7 +167,6 @@ return function (name)
             CPPCLS = assert(info.CPPCLS),
             VARS = info.VARS,
             DEF = olua.format(assert(info.DEF)),
-            FUNC = info.FUNC,
         }
     end
 

@@ -10,3 +10,15 @@ print('add lib search path: ' .. cpath)
 
 local olua = require "olua"
 olua.workpath = string.gsub(file, 'src/init.lua', '')
+
+local _ipairs = ipairs
+function ipairs(t)
+    local mt = getmetatable(t)
+    return (mt and mt.__ipairs or _ipairs)(t)
+end
+
+local _pairs = pairs
+function pairs(t)
+    local mt = getmetatable(t)
+    return (mt and mt.__pairs or _pairs)(t)
+end

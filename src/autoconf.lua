@@ -5,9 +5,11 @@ local format = olua.format
 
 local cachedClass = {}
 local ignoredClass = {}
+local visitedClass = {}
 
 local M = {}
 
+local HEADER_PATH = 'autobuild/.autoconf.h'
 local logfile = io.open('autobuild/autoconf.log', 'w')
 
 local function log(fmt, ...)
@@ -16,6 +18,7 @@ local function log(fmt, ...)
 end
 
 setmetatable(ignoredClass, {__gc = function ()
+    os.remove(HEADER_PATH)
     for cls, flag in pairs(ignoredClass) do
         if flag then
             log("[ignore class] %s", cls)
@@ -26,205 +29,18 @@ end})
 function M:parse(path)
     print('autoconf => ' .. path)
     self.conf = dofile(path)
-    self.visited = {}
+    self.filename = self:toPath(self.conf.NAME)
     self.classes = {}
     self.aliases = {}
 
     self._file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '.lua', 'w')
 
-    local headerPath = 'autobuild/.autoconf.h'
-    local header = io.open(headerPath, 'w')
-    header:write('#ifndef __AUTOCONF_H__\n')
-    header:write('#define __AUTOCONF_H__\n')
-    header:write('\n#undef __APPLE__\n\n')
-    for _, v in ipairs(self.conf.PARSER.HEADERS) do
-        header:write(format('#include "${v}"'))
-        header:write('\n')
-    end
-    header:write('#endif')
-    header:close()
-
-    -- clang_createIndex(int excludeDeclarationsFromPCH, int displayDiagnostics);
-    -- local index = clang.createIndex(false, true)
-    local index = clang.createIndex(false, true)
-    local args = self.conf.PARSER.FLAGS
-    local workpath = olua.workpath
-    args[#args + 1] = format('-I${workpath}/include/c++')
-    args[#args + 1] = format('-I${workpath}/include/c')
-    args[#args + 1] = format('-I${workpath}/include/android-sysroot/')
-    args[#args + 1] = format('-I${workpath}/include/android-sysroot/x86_64-linux-android')
-    args[#args + 1] = '-x'
-    args[#args + 1] = 'c++'
-    args[#args + 1] = '-DANDROID'
-    args[#args + 1] = '-D__linux__'
-    args[#args + 1] = '-std=c++11'
-
-    local tu = index:parse(headerPath, args)
-    self:visit(tu:cursor())
-    self:writeLine("-- AUTO BUILD, DON'T MODIFY!")
-    self:writeLine('')
-    self:writeLine('require "autobuild.%s-types"', self:toPath(self.conf.NAME))
-    self:writeLine('')
-    self:writeLine('local olua = require "olua"')
-    self:writeLine('local typeconv = olua.typeconv')
-    self:writeLine('local typecls = olua.typecls')
-    self:writeLine('local cls = nil')
-    self:writeLine('local M = {}')
-    self:writeLine('')
-    self:writeHeader()
-    self:writeClass()
-    self:writeTypedef()
-    self:writeLine('return M')
-
-    os.remove(headerPath)
+    self:doParse()
+    self:checkClass()
+    self:writeToFile()
 end
 
-function M:toPath(name)
-    return string.gsub(name, '_', '-')
-end
-
-function M:write(fmt, ...)
-    self._file:write(string.format(fmt, ...))
-end
-
-function M:writeLine(fmt, ...)
-    self:write(fmt, ...)
-    self._file:write('\n')
-end
-
-function M:writeRaw(str)
-    self._file:write(str)
-end
-
-function M:writeHeader()
-    self:writeLine('M.NAME = "' .. self.conf.NAME .. '"')
-    self:writeLine('M.PATH = "' .. self.conf.PATH .. '"')
-    if self.conf.HEADER_INCLUDES then
-        self:writeLine('M.HEADER_INCLUDES = [[')
-        self:write(self.conf.HEADER_INCLUDES)
-        self:writeLine(']]')
-    end
-    self:writeLine('M.INCLUDES = [[')
-    self:write(self.conf.INCLUDES)
-    self:writeLine(']]')
-    if self.conf.CHUNK then
-        self:writeLine('M.CHUNK = [[')
-        self:writeRaw(self.conf.CHUNK)
-        self:writeLine(']]')
-    end
-    self:writeLine('')
-    if #self.conf.CONVS > 0 then
-        self:writeLine('M.CONVS = {')
-        for _, v in ipairs(self.conf.CONVS) do
-            self:writeLine(format([=[
-                typeconv {
-                    CPPCLS = '${v.CPPCLS}',
-                    DEF = [[
-                        ${v.DEF}
-                    ]],
-                },
-            ]=], 4))
-        end
-        self:writeLine('}')
-        self:writeLine('')
-    end
-end
-
-function M:writeTypedef()
-    local file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '-types.lua', 'w')
-    local classes = {}
-    local enums = {}
-    local typemap = {}
-    local function writeLine(fmt, ...)
-        file:write(string.format(fmt, ...))
-        file:write('\n')
-    end
-    writeLine("-- AUTO BUILD, DON'T MODIFY!")
-    writeLine('')
-    writeLine('local olua = require "olua"')
-    writeLine('local typedef = olua.typedef')
-    writeLine('')
-    for _, td in ipairs(self.conf.TYPEDEFS) do
-        local arr = {}
-        for k, v in pairs(td) do
-            arr[#arr + 1] = {k, v}
-        end
-        table.sort(arr, function (a, b) return a[1] < b[1] end)
-        writeLine("typedef {")
-        for _, p in ipairs(arr) do
-            if type(p[2]) == 'string' then
-                if string.find(p[2], '[\n\r]') then
-                    writeLine("    %s = [[\n%s]],", p[1], p[2])
-                else
-                    writeLine("    %s = '%s',", p[1], p[2])
-                end
-            else
-                writeLine("    %s = %s,", p[1], p[2])
-            end
-        end
-        writeLine("}")
-        writeLine("")
-    end
-    for _, v in ipairs(self.conf.CONVS) do
-        local CPPCLS_PATH = string.gsub(v.CPPCLS, '::', '_')
-        local VARS = v.VARS or 'nil'
-        file:write(format([[
-            typedef {
-                CPPCLS = '${v.CPPCLS}',
-                CONV = 'auto_olua_$$_${CPPCLS_PATH}',
-                VARS = ${VARS},
-            }
-        ]]))
-        file:write('\n\n')
-    end
-    for _, cls in ipairs(self.classes) do
-        typemap[cls.CPPCLS] = cls
-        if cls.KIND == 'Enum' then
-            enums[#enums + 1] = cls.CPPCLS
-        elseif cls.KIND == 'Class' then
-            classes[#classes + 1] = cls.CPPCLS
-        end
-    end
-    for alias, cppcls in pairs(self.aliases) do
-        local cls = typemap[cppcls] or typemap[alias]
-        if cls then
-            if cls.KIND == 'Class' then
-                classes[#classes + 1] = alias
-            else
-                enums[#enums + 1] = alias
-            end
-        end
-    end
-    table.sort(classes)
-    table.sort(enums)
-    for _, v in ipairs(enums) do
-        local CPPCLS = v
-        local LUACLS = self.conf.MAKE_LUACLS(v)
-        file:write(format([[
-            typedef {
-                CPPCLS = '${CPPCLS}',
-                DECLTYPE = 'lua_Unsigned',
-                CONV = 'olua_$$_uint',
-                LUACLS = '${LUACLS}',
-            }
-        ]]))
-        file:write('\n\n')
-    end
-    for _, v in ipairs(classes) do
-        local CPPCLS = v
-        local LUACLS = self.conf.MAKE_LUACLS(v)
-        file:write(format([[
-            typedef {
-                CPPCLS = '${CPPCLS} *',
-                CONV = 'olua_$$_cppobj',
-                LUACLS = '${LUACLS}',
-            }
-        ]]))
-        file:write('\n\n')
-    end
-end
-
-function M:writeClass()
+function M:checkClass()
     for _, cls in ipairs(self.classes) do
         cachedClass[cls.CPPCLS] = cls
     end
@@ -254,257 +70,39 @@ function M:writeClass()
     table.sort(self.classes, function (a, b)
         return a.CONF.INDEX < b.CONF.INDEX
     end)
-    local function shouldExportFunc(supercls, fn)
-        if supercls then
-            local super = assert(cachedClass[supercls], "not found super class '" .. supercls .. "'")
-            if super.INST_FUNCS[fn.PROTOTYPE] or super.CONF.EXCLUDE[fn.NAME] then
-                return false
-            else
-                return shouldExportFunc(super.SUPERCLS, fn)
-            end
-        else
-            return true
-        end
-    end
-    self:writeLine('M.CLASSES = {}')
-    self:writeLine('')
-    for _, cls in ipairs(self.classes) do
-        if cls.KIND == 'EnumAlias' then
-            goto continue
-        end
-        self:writeLine("cls = typecls '%s'", cls.CPPCLS)
-        if cls.SUPERCLS then
-            self:writeLine('cls.SUPERCLS = "' .. cls.SUPERCLS .. '"')
-        end
-        if cls.CONF.REG_LUATYPE == false or cls.REG_LUATYPE == false then
-            self:writeLine('cls.REG_LUATYPE = false')
-        end
-        if cls.CONF.DEFIF then
-            self:writeLine('cls.DEFIF = "%s"', cls.CONF.DEFIF)
-        end
-        if cls.CONF.CHUNK then
-            self:writeLine('cls.CHUNK = [[')
-            self:writeRaw(cls.CONF.CHUNK)
-            self:writeLine(']]')
-        end
-        if cls.KIND == 'Enum' then
-            self:writeLine('cls.enums [[')
-            for _, value in ipairs(cls.ENUMS) do
-                self:writeLine('    ' .. value)
-            end
-            self:writeLine(']]')
-        elseif cls.KIND == 'Class' then
-            local props = {}
-            local filter = {}
-            local function tryAddProp(fn)
-                if string.find(fn.NAME, '^get') or string.find(fn.NAME, '^is') then
-                    local name = string.gsub(fn.NAME, '^%l+', '')
-                    name = string.gsub(name, '^%u+', function (str)
-                        if #str > 1 and #str ~= #name then
-                            if #str == #name - 1 then
-                                -- maybe XXXXXs
-                                return str:lower()
-                            else
-                                return str:sub(1, #str - 1):lower() .. str:sub(#str)
-                            end
-                        else
-                            return str:lower()
-                        end
-                    end)
-                    if not filter[name] then
-                        filter[name] = true
-                        if fn.ARGS == 0 then
-                            props[#props + 1] = name
-                        end
-                    else
-                        for i, v in ipairs(props) do
-                            if v == name then
-                                table.remove(props, i)
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-            if #cls.ENUMS > 0 then
-                self:writeLine('cls.enums [[')
-                for _, value in ipairs(cls.ENUMS) do
-                    self:writeLine('    ' .. value)
-                end
-                self:writeLine(']]')
-            end
-            self:writeLine('cls.funcs [[')
-            local callbacks = {}
-            for _, fn in ipairs(cls.FUNCS) do
-                if shouldExportFunc(cls.SUPERCLS, fn) then
-                    if not fn.CALLBACK_TYPE then
-                        self:writeLine('    ' .. fn.FUNC)
-                        tryAddProp(fn)
-                    else
-                        local arr = callbacks[fn.NAME]
-                        if not arr then
-                            arr = {}
-                            callbacks[#callbacks + 1] = arr
-                            callbacks[fn.NAME] = arr
-                        end
-                        arr[#arr + 1] = fn
-                    end
-                end
-            end
-            for _, v in ipairs(callbacks) do
-                local FUNCS = {}
-                for i, fn in ipairs(v) do
-                    FUNCS[i] = fn.FUNC
-                end
-                local tag = v[1].NAME:gsub('^set', ''):gsub('^get', '')
-                local mode = v[1].CALLBACK_TYPE == 'RET' and 'OLUA_TAG_EQUAL' or 'OLUA_TAG_REPLACE'
-                cls.CONF.CALLBACK {
-                    FUNCS = FUNCS,
-                    TAG_MAKER = olua.format 'olua_makecallbacktag("${tag}")',
-                    TAG_MODE = mode,
-                }
-            end
-            for _, cb in ipairs(cls.CONF.CALLBACK) do
-                if #cb.FUNCS == 1 and (string.match(cb.FUNCS[1], '%(%) *$')
-                    or (string.match(cb.FUNCS[1], '%( *void *%) *$'))) then
-                    tryAddProp({
-                        NAME = cb.NAME,
-                        ARGS = 0,
-                    })
-                end
-            end
-            self:writeLine(']]')
-            for _, fn in ipairs(cls.VARS) do
-                self:writeLine("cls.var('%s', [[%s]])", cls.CONF.LUANAME(fn.NAME), fn.SNIPPET)
-            end
-            self:writeConfEnum(cls)
-            self:writeConfFunc(cls)
-            self:writeConfVar(cls)
-            self:writeConfProp(cls)
-            self:writeConfCallback(cls)
-            self:writeConfBlock(cls)
-            self:writeConfInject(cls)
-            self:writeConfAlias(cls)
-            if #props > 0 then
-                self:writeLine('cls.props [[')
-                for _, v in ipairs(props) do
-                    self:writeLine('    ' .. v)
-                end
-                self:writeLine(']]')
-            end
-        end
-        self:writeLine('M.CLASSES[#M.CLASSES + 1] = cls')
-        self:writeLine('')
-
-        ::continue::
-    end
 end
 
-function M:writeConfEnum(cls)
-    for _, e in ipairs(cls.CONF.ENUM) do
-        self:writeLine("cls.enum('%s', '%s')", e.NAME, e.VALUE)
-    end
-end
+function M:doParse()
+    local header = io.open(HEADER_PATH, 'w')
+    header:write(format [[
+        #ifndef __AUTOCONF_H__\n
+        #define __AUTOCONF_H__\n
 
-function M:writeConfFunc(cls)
-    for _, fn in ipairs(cls.CONF.FUNC) do
-        self:writeLine("cls.func('%s', [[%s]])", fn.FUNC, fn.SNIPPET)
+        #undef __APPLE__
+    ]])
+    header:write('\n\n')
+    for _, HEADER in ipairs(self.conf.PARSER.HEADERS) do
+        header:write(format('#include "${HEADER}"'))
+        header:write('\n')
     end
-end
+    header:write('#endif')
+    header:close()
 
-function M:writeConfVar(cls)
-    for _, fn in ipairs(cls.CONF.VAR) do
-        self:writeLine("cls.var('%s', [[%s]])", fn.NAME, fn.SNIPPET)
-    end
-end
+    local index = clang.createIndex(false, true)
+    local args = self.conf.PARSER.FLAGS
+    local WORKPATH = olua.workpath
+    args[#args + 1] = format('-I${WORKPATH}/include/c++')
+    args[#args + 1] = format('-I${WORKPATH}/include/c')
+    args[#args + 1] = format('-I${WORKPATH}/include/android-sysroot/')
+    args[#args + 1] = format('-I${WORKPATH}/include/android-sysroot/x86_64-linux-android')
+    args[#args + 1] = '-x'
+    args[#args + 1] = 'c++'
+    args[#args + 1] = '-DANDROID'
+    args[#args + 1] = '-D__linux__'
+    args[#args + 1] = '-std=c++11'
 
-function M:writeConfProp(cls)
-    for _, p in ipairs(cls.CONF.PROP) do
-        if not p.GET then
-            self:writeLine("cls.prop('%s')", p.NAME)
-        elseif string.find(p.GET, '{') then
-            if p.SET then
-                self:writeLine("cls.prop('%s', [[\n%s]], [[\n%s]])", p.NAME, p.GET, p.SET)
-            else
-                self:writeLine("cls.prop('%s', [[\n%s]])", p.NAME, p.GET)
-            end
-        else
-            if p.SET then
-                self:writeLine("cls.prop('%s', '%s', '%s')", p.NAME, p.GET, p.SET)
-            else
-                self:writeLine("cls.prop('%s', '%s')", p.NAME, p.GET)
-            end
-        end
-    end
-end
-
-function M:writeConfCallback(cls)
-    for _, v in ipairs(cls.CONF.CALLBACK) do
-        self:writeLine('cls.callback {')
-        self:writeLine('    FUNCS =  {')
-        for _, fn in ipairs(v.FUNCS) do
-            self:writeLine("        '%s',", fn)
-        end
-        assert(v.TAG_MAKER, 'no tag maker')
-        assert(v.TAG_MODE, 'no tag mode')
-        self:writeLine('    },')
-        if type(v.TAG_MAKER) == 'string' then
-            self:writeLine("    TAG_MAKER = '%s',", v.TAG_MAKER)
-        else
-            self:writeLine("    TAG_MAKER = {'%s'},", table.concat(v.TAG_MAKER, "', '"))
-        end
-        if type(v.TAG_MODE) == 'string' then
-            self:writeLine("    TAG_MODE = '%s',", v.TAG_MODE)
-        else
-            self:writeLine("    TAG_MODE = {'%s'},", table.concat(v.TAG_MODE, "', '"))
-        end
-        if v.TAG_STORE then
-            self:writeLine('    TAG_STORE = %s,', v.TAG_STORE)
-        end
-        if v.CPPFUNC then
-            self:writeLine("    CPPFUNC = '%s',", v.CPPFUNC)
-            assert(v.NEW, 'no new object block')
-            self:writeLine("    NEW = [[\n%s]],", v.NEW)
-        end
-        self:writeLine("    CALLONCE = %s,", v.CALLONCE == true)
-        self:writeLine("    REMOVE = %s,", v.REMOVE == true)
-        self:writeLine('}')
-    end
-end
-
-function M:writeConfBlock(cls)
-    if cls.CONF.BLOCK then
-        self:writeLine(cls.CONF.BLOCK)
-    end
-end
-
-function M:writeConfInject(cls)
-    for _, v in ipairs(cls.CONF.INJECT) do
-        if type(v.NAMES) == 'string' then
-            self:writeLine("cls.inject('%s', {", v.NAMES)
-        else
-            self:writeLine("cls.inject({'%s'}, {", table.concat(v.NAMES, "', '"))
-        end
-        if v.CODES.BEFORE then
-            self:writeLine('    BEFORE = [[\n%s]],', v.CODES.BEFORE)
-        end
-        if v.CODES.AFTER then
-            self:writeLine('    AFTER = [[\n%s]],', v.CODES.AFTER)
-        end
-        if v.CODES.CALLBACK_BEFORE then
-            self:writeLine('    CALLBACK_BEFORE = [[\n%s]],', v.CODES.CALLBACK_BEFORE)
-        end
-        if v.CODES.CALLBACK_AFTER then
-            self:writeLine('    CALLBACK_AFTER = [[\n%s]],', v.CODES.CALLBACK_AFTER)
-        end
-        self:writeLine('})')
-    end
-end
-
-function M:writeConfAlias(cls)
-    for _, v in ipairs(cls.CONF.ALIAS) do
-        self:writeLine("cls.alias('%s', '%s')", v.NAME, v.ALIAS)
-    end
+    local tu = index:parse(HEADER_PATH, args)
+    self:visit(tu:cursor())
 end
 
 function M:createClass()
@@ -520,7 +118,7 @@ function M:visitEnum(cur)
     cls.CONF = conf
     cls.CPPCLS = cppcls
     cls.ENUMS = {}
-    self.visited[cppcls] = true
+    visitedClass[cppcls] = true
     if cur:kind() ~= 'TypeAliasDecl' then
         for _, c in ipairs(cur:children()) do
             local kind = c:kind()
@@ -747,7 +345,7 @@ function M:visitClass(cur)
     cls.KIND = 'Class'
     cls.INST_FUNCS = {}
 
-    self.visited[cppcls] = true
+    visitedClass[cppcls] = true
 
     if cur:kind() == 'Namespace' then
         cls.REG_LUATYPE = false
@@ -816,7 +414,8 @@ function M:visit(cur)
 
     local kind = cur:kind()
     local children = cur:children()
-    local shouldExport = self.conf.CLASSES[cur:fullname()] and not self.visited[cur:fullname()]
+    local cls = cur:fullname()
+    local shouldExport = self.conf.CLASSES[cls] and not visitedClass[cls]
     if #children == 0 then
         return
     elseif kind == 'Namespace' then
@@ -831,7 +430,6 @@ function M:visit(cur)
         if shouldExport then
             self:visitClass(cur)
         else
-            local cls = cur:fullname()
             if not self.conf.EXCLUDE_TYPE[cls] and not string.find(cls, '^std::') then
                 if ignoredClass[cls] == nil then
                     ignoredClass[cls] = true
@@ -843,9 +441,8 @@ function M:visit(cur)
             self:visitEnum(cur)
         end
     elseif kind == 'TypeAliasDecl' then
-        local fullname = cur:fullname()
-        if not string.find(fullname, '^std::') then
-            self.aliases[fullname] = cur:type():canonical():name()
+        if not string.find(cls, '^std::') then
+            self.aliases[cls] = cur:underlyingType():name()
             if shouldExport then
                 self:visitEnum(cur)
             end
@@ -854,7 +451,7 @@ function M:visit(cur)
         local c = children[1]
         if not c or c:kind() ~= 'UnexposedAttr' then
             local alias = cur:type():name()
-            local name = cur:typedefType():name()
+            local name = cur:underlyingType():name()
             self.aliases[alias] = self.aliases[name] or name
         end
     else
@@ -862,6 +459,447 @@ function M:visit(cur)
             self:visit(c)
         end
     end
+end
+
+--
+-- wirte data
+--
+function M:toPath(name)
+    return string.gsub(name, '_', '-')
+end
+
+function M:writeHeader(append)
+    append(format([[
+        M.NAME = "${self.conf.NAME}"
+        M.PATH = "${self.conf.PATH}"
+    ]]))
+
+    if self.conf.HEADER_INCLUDES then
+        append(format([=[
+            M.HEADER_INCLUDES = [[
+            ${self.conf.HEADER_INCLUDES}
+            ]]
+        ]=]))
+    end
+
+    append(format([=[
+        M.INCLUDES = [[
+        ${self.conf.INCLUDES}
+        ]]
+    ]=]))
+
+    if self.conf.CHUNK then
+        append(format([=[
+            M.CHUNK = [[
+            ${self.conf.CHUNK}
+            ]]
+        ]=]))
+    end
+
+    append('')
+
+    if #self.conf.CONVS > 0 then
+        append('M.CONVS = {')
+        for _, CONV in ipairs(self.conf.CONVS) do
+            append(format([=[
+                typeconv {
+                    CPPCLS = '${CONV.CPPCLS}',
+                    DEF = [[
+                        ${CONV.DEF}
+                    ]],
+                },
+            ]=], 4))
+        end
+        append('}')
+        append('')
+    end
+end
+
+function M:writeTypedef()
+    local file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '-types.lua', 'w')
+    local classes = {}
+    local enums = {}
+    local typemap = {}
+    local function writeLine(fmt, ...)
+        file:write(string.format(fmt, ...))
+        file:write('\n')
+    end
+    writeLine("-- AUTO BUILD, DON'T MODIFY!")
+    writeLine('')
+    writeLine('local olua = require "olua"')
+    writeLine('local typedef = olua.typedef')
+    writeLine('')
+    for _, td in ipairs(self.conf.TYPEDEFS) do
+        local arr = {}
+        for k, v in pairs(td) do
+            arr[#arr + 1] = {k, v}
+        end
+        table.sort(arr, function (a, b) return a[1] < b[1] end)
+        writeLine("typedef {")
+        for _, p in ipairs(arr) do
+            if type(p[2]) == 'string' then
+                if string.find(p[2], '[\n\r]') then
+                    writeLine("    %s = [[\n%s]],", p[1], p[2])
+                else
+                    writeLine("    %s = '%s',", p[1], p[2])
+                end
+            else
+                writeLine("    %s = %s,", p[1], p[2])
+            end
+        end
+        writeLine("}")
+        writeLine("")
+    end
+    for _, v in ipairs(self.conf.CONVS) do
+        local CPPCLS_PATH = string.gsub(v.CPPCLS, '::', '_')
+        local VARS = v.VARS or 'nil'
+        file:write(format([[
+            typedef {
+                CPPCLS = '${v.CPPCLS}',
+                CONV = 'auto_olua_$$_${CPPCLS_PATH}',
+                VARS = ${VARS},
+            }
+        ]]))
+        file:write('\n\n')
+    end
+    for _, cls in ipairs(self.classes) do
+        typemap[cls.CPPCLS] = cls
+        if cls.KIND == 'Enum' then
+            enums[#enums + 1] = cls.CPPCLS
+        elseif cls.KIND == 'Class' then
+            classes[#classes + 1] = cls.CPPCLS
+        end
+    end
+    for alias, cppcls in pairs(self.aliases) do
+        local cls = typemap[cppcls] or typemap[alias]
+        if cls then
+            if cls.KIND == 'Class' then
+                classes[#classes + 1] = alias
+            else
+                enums[#enums + 1] = alias
+            end
+        end
+    end
+    table.sort(classes)
+    table.sort(enums)
+    for _, v in ipairs(enums) do
+        local CPPCLS = v
+        local LUACLS = self.conf.MAKE_LUACLS(v)
+        file:write(format([[
+            typedef {
+                CPPCLS = '${CPPCLS}',
+                DECLTYPE = 'lua_Unsigned',
+                CONV = 'olua_$$_uint',
+                LUACLS = '${LUACLS}',
+            }
+        ]]))
+        file:write('\n\n')
+    end
+    for _, v in ipairs(classes) do
+        local CPPCLS = v
+        local LUACLS = self.conf.MAKE_LUACLS(v)
+        file:write(format([[
+            typedef {
+                CPPCLS = '${CPPCLS} *',
+                CONV = 'olua_$$_cppobj',
+                LUACLS = '${LUACLS}',
+            }
+        ]]))
+        file:write('\n\n')
+    end
+end
+
+local function isNewFunc(supercls, fn)
+    if not supercls then
+        return true
+    end
+
+    local super = cachedClass[supercls]
+    if not super then
+        error(format("not found super class '${supercls}'"))
+    elseif super.INST_FUNCS[fn.PROTOTYPE] or super.CONF.EXCLUDE[fn.NAME] then
+        return false
+    else
+        return isNewFunc(super.SUPERCLS, fn)
+    end
+end
+
+local function tryAddProp(fn, filter, props)
+    if string.find(fn.NAME, '^get') or string.find(fn.NAME, '^is') then
+        local name = string.gsub(fn.NAME, '^%l+', '')
+        name = string.gsub(name, '^%u+', function (str)
+            if #str > 1 and #str ~= #name then
+                if #str == #name - 1 then
+                    -- maybe XXXXXs
+                    return str:lower()
+                else
+                    return str:sub(1, #str - 1):lower() .. str:sub(#str)
+                end
+            else
+                return str:lower()
+            end
+        end)
+        if not filter[name] then
+            filter[name] = true
+            if fn.ARGS == 0 then
+                props[#props + 1] = name
+            end
+        else
+            for i, v in ipairs(props) do
+                if v == name then
+                    table.remove(props, i)
+                    break
+                end
+            end
+        end
+    end
+end
+
+function M:writeClass(append)
+    append('M.CLASSES = {}')
+    append('')
+    for _, cls in ipairs(self.classes) do
+        if cls.KIND == 'EnumAlias' then
+            goto continue
+        end
+        append(format("cls = typecls '${cls.CPPCLS}'"))
+        if cls.SUPERCLS then
+            append(format('cls.SUPERCLS = "${cls.SUPERCLS}"'))
+        end
+        if cls.CONF.REG_LUATYPE == false or cls.REG_LUATYPE == false then
+            append('cls.REG_LUATYPE = false')
+        end
+        if cls.CONF.DEFIF then
+            append(format('cls.DEFIF = "${cls.CONF.DEFIF}"'))
+        end
+        if cls.CONF.CHUNK then
+            append(format([=[
+                cls.CHUNK = [[
+                ${cls.CONF.CHUNK}
+                ]]
+            ]=]))
+        end
+        if cls.KIND == 'Enum' then
+            append('cls.enums [[')
+            for _, value in ipairs(cls.ENUMS) do
+                append('    ' .. value)
+            end
+            append(']]')
+        elseif cls.KIND == 'Class' then
+            local props = {}
+            local filter = {}
+            if #cls.ENUMS > 0 then
+                append('cls.enums [[')
+                for _, value in ipairs(cls.ENUMS) do
+                    append('    ' .. value)
+                end
+                append(']]')
+            end
+            append('cls.funcs [[')
+            local callbacks = {}
+            for _, fn in ipairs(cls.FUNCS) do
+                if isNewFunc(cls.SUPERCLS, fn) then
+                    if not fn.CALLBACK_TYPE then
+                        append('    ' .. fn.FUNC)
+                        tryAddProp(fn, filter, props)
+                    else
+                        local arr = callbacks[fn.NAME]
+                        if not arr then
+                            arr = {}
+                            callbacks[#callbacks + 1] = arr
+                            callbacks[fn.NAME] = arr
+                        end
+                        arr[#arr + 1] = fn
+                    end
+                end
+            end
+            for _, v in ipairs(callbacks) do
+                local FUNCS = {}
+                for i, fn in ipairs(v) do
+                    FUNCS[i] = fn.FUNC
+                end
+                local TAG = v[1].NAME:gsub('^set', ''):gsub('^get', '')
+                local mode = v[1].CALLBACK_TYPE == 'RET' and 'OLUA_TAG_EQUAL' or 'OLUA_TAG_REPLACE'
+                cls.CONF.CALLBACK[v[1].NAME] = {
+                    FUNCS = FUNCS,
+                    TAG_MAKER = olua.format 'olua_makecallbacktag("${TAG}")',
+                    TAG_MODE = mode,
+                }
+            end
+            for _, cb in ipairs(cls.CONF.CALLBACK) do
+                if #cb.FUNCS == 1 and (string.match(cb.FUNCS[1], '%(%) *$')
+                    or (string.match(cb.FUNCS[1], '%( *void *%) *$'))) then
+                    tryAddProp({
+                        NAME = cb.NAME,
+                        ARGS = 0,
+                    }, filter, props)
+                end
+            end
+            append(']]')
+            for _, fn in ipairs(cls.VARS) do
+                local LUANAME = cls.CONF.LUANAME(fn.NAME)
+                append(format("cls.var('${LUANAME}', [[${fn.SNIPPET}]])"))
+            end
+            self:writeConfEnum(cls, append)
+            self:writeConfFunc(cls, append)
+            self:writeConfVar(cls, append)
+            self:writeConfProp(cls, append)
+            self:writeConfCallback(cls, append)
+            self:writeConfBlock(cls, append)
+            self:writeConfInject(cls, append)
+            self:writeConfAlias(cls, append)
+            if #props > 0 then
+                append('cls.props [[')
+                for _, v in ipairs(props) do
+                    append('    ' .. v)
+                end
+                append(']]')
+            end
+        end
+        append('M.CLASSES[#M.CLASSES + 1] = cls')
+        append('')
+
+        ::continue::
+    end
+end
+
+function M:writeConfEnum(cls, append)
+    for _, e in ipairs(cls.CONF.ENUM) do
+        append(format("cls.enum('${e.NAME}', '${e.VALUE}')"))
+    end
+end
+
+function M:writeConfFunc(cls, append)
+    for _, fn in ipairs(cls.CONF.FUNC) do
+        append(format("cls.func('${fn.FUNC}', [[${fn.SNIPPET}]])"))
+    end
+end
+
+function M:writeConfVar(cls, append)
+    for _, fn in ipairs(cls.CONF.VAR) do
+        append(format("cls.var('${fn.NAME}', [[${fn.SNIPPET}]])"))
+    end
+end
+
+function M:writeConfProp(cls, append)
+    for _, p in ipairs(cls.CONF.PROP) do
+        if not p.GET then
+            append(format("cls.prop('${p.NAME}')"))
+        elseif string.find(p.GET, '{') then
+            if p.SET then
+                append(format("cls.prop('${p.NAME}', [[\n${p.GET}]], [[\n${p.SET}]])"))
+            else
+                append(format("cls.prop('${p.NAME}', [[\n${p.GET}]])"))
+            end
+        else
+            if p.SET then
+                append(format("cls.prop('${p.NAME}', '${p.GET}', '${p.SET}')"))
+            else
+                append(format("cls.prop('${p.NAME}', '${p.GET}')"))
+            end
+        end
+    end
+end
+
+function M:writeConfCallback(cls, append)
+    for _, v in ipairs(cls.CONF.CALLBACK) do
+        local FUNCS = olua.newarray("',\n'", "'", "'"):push(table.unpack(v.FUNCS))
+        local TAG_MAKER = olua.newarray("', '", "'", "'")
+        local TAG_MODE = olua.newarray("', '", "'", "'")
+        local TAG_STORE = v.TAG_STORE or 'nil'
+        local CALLONCE = tostring(v.CALLONCE == true)
+        local REMOVE = tostring(v.REMOVE == true)
+        assert(v.TAG_MAKER, 'no tag maker')
+        assert(v.TAG_MODE, 'no tag mode')
+        if type(v.TAG_MAKER) == 'string' then
+            TAG_MAKER:push(v.TAG_MAKER)
+        else
+            TAG_MAKER:push(table.unpack(v.TAG_MAKER))
+            TAG_MAKER = '{' .. tostring(TAG_MAKER) .. '}'
+        end
+        if type(v.TAG_MODE) == 'string' then
+            TAG_MODE:push(v.TAG_MODE)
+        else
+            TAG_MODE:push(table.unpack(v.TAG_MODE))
+            TAG_MODE = '{' .. tostring(TAG_MODE) .. '}'
+        end
+        append(format([[
+            cls.callback {
+                FUNCS =  {
+                    ${FUNCS}
+                },
+                TAG_MAKER = ${TAG_MAKER},
+                TAG_MODE = ${TAG_MODE},
+                TAG_STORE = ${TAG_STORE},
+                CALLONCE = ${CALLONCE},
+                REMOVE = ${REMOVE},
+        ]]))
+        if v.CPPFUNC then
+            append(string.format("    CPPFUNC = '%s',", v.CPPFUNC))
+            assert(v.NEW, 'no new object block')
+            append(string.format("    NEW = [[\n%s]],", v.NEW))
+        end
+        append('}')
+    end
+end
+
+function M:writeConfBlock(cls, append)
+    if cls.CONF.BLOCK then
+        append(cls.CONF.BLOCK)
+    end
+end
+
+function M:writeConfInject(cls, append)
+    for _, v in ipairs(cls.CONF.INJECT) do
+        append(string.format("cls.inject('%s', {", v.NAME))
+        if v.CODES.BEFORE then
+            append(string.format('    BEFORE = [[\n%s]],', v.CODES.BEFORE))
+        end
+        if v.CODES.AFTER then
+            append(string.format('    AFTER = [[\n%s]],', v.CODES.AFTER))
+        end
+        if v.CODES.CALLBACK_BEFORE then
+            append(string.format('    CALLBACK_BEFORE = [[\n%s]],', v.CODES.CALLBACK_BEFORE))
+        end
+        if v.CODES.CALLBACK_AFTER then
+            append(string.format('    CALLBACK_AFTER = [[\n%s]],', v.CODES.CALLBACK_AFTER))
+        end
+        append(string.format('})'))
+    end
+end
+
+function M:writeConfAlias(cls, append)
+    for _, v in ipairs(cls.CONF.ALIAS) do
+        append(format("cls.alias('${v.NAME}', '${v.ALIAS}')"))
+    end
+end
+
+function M:writeToFile()
+    local file = io.open(format('autobuild/${self.filename}.lua'), 'w')
+
+    local function append(...)
+        file:write(...)
+        file:write('\n')
+    end
+
+    append(format([[
+        -- AUTO BUILD, DON'T MODIFY!
+
+        require "autobuild.${self.filename}-types"
+
+        local olua = require "olua"
+        local typeconv = olua.typeconv
+        local typecls = olua.typecls
+        local cls = nil
+        local M = {}
+    ]]))
+    append('')
+
+    self:writeHeader(append)
+    self:writeClass(append)
+    self:writeTypedef(append)
+
+    append('return M')
 end
 
 return function (path)

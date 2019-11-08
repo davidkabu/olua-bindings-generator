@@ -310,9 +310,9 @@ local function genOneFunc(cls, fi, write, funcidx, exported)
         TOTAL_ARGS = #fi.ARGS,
         DECL_ARGS = olua.newarray(),
         CHECK_ARGS = olua.newarray(),
-        CALLER_ARGS = olua.newarray(),
-        INJECT_AFTER = olua.newarray(fi.INJECT.AFTER),
-        INJECT_BEFORE = olua.newarray(fi.INJECT.BEFORE),
+        CALLER_ARGS = olua.newarray(', '),
+        INJECT_AFTER = olua.newarray():push(fi.INJECT.AFTER),
+        INJECT_BEFORE = olua.newarray():push(fi.INJECT.BEFORE),
         PUSH_RET = "",
         RET_EXP = "",
         NUM_RET = "0",
@@ -377,8 +377,6 @@ local function genOneFunc(cls, fi, write, funcidx, exported)
     else
         CALLER = CALLER .. CPPFUNC
     end
-
-    FUNC.CALLER_ARGS = FUNC.CALLER_ARGS:tostring(', ')
 
     write(format([[
         static int _${CPPCLS_PATH}_${fi.CPPFUNC}${FUNC_INDEX}(lua_State *L)

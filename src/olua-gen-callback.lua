@@ -117,8 +117,8 @@ function olua.genCallback(cls, fi, write)
         DECL_RESULT = "",
         RETURN_RESULT = "",
         CHECK_RESULT = "",
-        INJECT_BEFORE = olua.newarray(fi.INJECT.CALLBACK_BEFORE),
-        INJECT_AFTER = olua.newarray(fi.INJECT.CALLBACK_AFTER),
+        INJECT_BEFORE = olua.newarray():push(fi.INJECT.CALLBACK_BEFORE),
+        INJECT_AFTER = olua.newarray():push(fi.INJECT.CALLBACK_AFTER),
     }
 
     local localBlock = false
