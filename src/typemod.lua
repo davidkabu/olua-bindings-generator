@@ -4,7 +4,7 @@ local function command(func)
     return setmetatable({}, {__call = func})
 end
 
-local function createTable()
+local function createTable(classname)
     local t = {}
     local arr = {}
     local map = {}
@@ -19,7 +19,7 @@ local function createTable()
 
     function t:__newindex(key, value)
         assert(type(key) == 'string', 'only support string field')
-        assert(not map[key], 'field conflict: ' .. key)
+        assert(not map[key], 'field conflict: ' .. classname .. '.' .. key)
         map[key] = value
         arr[#arr + 1] = value
     end
@@ -135,15 +135,15 @@ return function (name)
     function module.typeconf(classname)
         local cls = {
             CPPCLS = classname,
-            ATTR = createTable(),
-            ALIAS = createTable(),
-            EXCLUDE = createTable(),
-            FUNC = createTable(),
-            CALLBACK = createTable(),
-            PROP = createTable(),
-            VAR = createTable(),
-            ENUM = createTable(),
-            INJECT = createTable(),
+            ATTR = createTable(classname),
+            ALIAS = createTable(classname),
+            EXCLUDE = createTable(classname),
+            FUNC = createTable(classname),
+            CALLBACK = createTable(classname),
+            PROP = createTable(classname),
+            VAR = createTable(classname),
+            ENUM = createTable(classname),
+            INJECT = createTable(classname),
             INDEX = INDEX,
             LUANAME = function (n) return n end,
         }

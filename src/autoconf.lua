@@ -33,8 +33,6 @@ function M:parse(path)
     self.classes = {}
     self.aliases = {}
 
-    self._file = io.open('autobuild/' .. self:toPath(self.conf.NAME) .. '.lua', 'w')
-
     self:doParse()
     self:checkClass()
     self:writeToFile()
@@ -209,6 +207,7 @@ function M:visitMethod(cls, cur)
 
     local fn = cur:name()
     local attr = cls.CONF.ATTR[fn] or {}
+    local callback = cls.CONF.CALLBACK[fn] or {}
     local exps = {}
 
     exps[#exps + 1] = attr.RET and (attr.RET .. ' ') or nil
@@ -222,10 +221,10 @@ function M:visitMethod(cls, cur)
         if funcType then
             callbackType = 'RET'
             resultType = funcType
-            if attr.NULLABLE ~= false then
+            if callback.NULLABLE ~= false then
                 exps[#exps + 1] = '@nullable '
             end
-            if attr.LOCAL ~= false then
+            if callback.LOCAL ~= false then
                 exps[#exps + 1] = '@local '
             end
         end
@@ -247,10 +246,10 @@ function M:visitMethod(cls, cur)
         if funcType then
             callbackType = 'ARG'
             type = funcType
-            if attr.NULLABLE ~= false then
+            if callback.NULLABLE ~= false then
                 exps[#exps + 1] = '@nullable '
             end
-            if attr.LOCAL ~= false then
+            if callback.LOCAL ~= false then
                 exps[#exps + 1] = '@local '
             end
         end
@@ -309,8 +308,9 @@ function M:visitFieldDecl(cls, cur)
     local type = self:toFuncType(cur:type())
     if type then
         exps[#exps + 1] = '@nullable '
-        local attr = cls.CONF.ATTR[cur:name()] or {}
-        if attr.LOCAL ~= false then
+        local callback = cls.CONF.CALLBACK[cur:name()] or {}
+        callback.NOTEXPORT = true
+        if callback.LOCAL ~= false then
             exps[#exps + 1] = '@local '
         end
     else
@@ -416,7 +416,7 @@ function M:visit(cur)
     local children = cur:children()
     local cls = cur:fullname()
     local shouldExport = self.conf.CLASSES[cls] and not visitedClass[cls]
-    if #children == 0 then
+    if #children == 0 or string.find(cls, "^std::") then
         return
     elseif kind == 'Namespace' then
         if shouldExport then
@@ -430,7 +430,7 @@ function M:visit(cur)
         if shouldExport then
             self:visitClass(cur)
         else
-            if not self.conf.EXCLUDE_TYPE[cls] and not string.find(cls, '^std::') then
+            if not self.conf.EXCLUDE_TYPE[cls] then
                 if ignoredClass[cls] == nil then
                     ignoredClass[cls] = true
                 end
@@ -441,11 +441,9 @@ function M:visit(cur)
             self:visitEnum(cur)
         end
     elseif kind == 'TypeAliasDecl' then
-        if not string.find(cls, '^std::') then
-            self.aliases[cls] = cur:underlyingType():name()
-            if shouldExport then
-                self:visitEnum(cur)
-            end
+        self.aliases[cls] = cur:underlyingType():name()
+        if shouldExport then
+            self:visitEnum(cur)
         end
     elseif kind == 'TypedefDecl' then
         local c = children[1]
@@ -720,19 +718,34 @@ function M:writeClass(append)
                 end
                 local TAG = v[1].NAME:gsub('^set', ''):gsub('^get', '')
                 local mode = v[1].CALLBACK_TYPE == 'RET' and 'OLUA_TAG_EQUAL' or 'OLUA_TAG_REPLACE'
-                cls.CONF.CALLBACK[v[1].NAME] = {
-                    FUNCS = FUNCS,
-                    TAG_MAKER = olua.format 'olua_makecallbacktag("${TAG}")',
-                    TAG_MODE = mode,
-                }
+                local callback = cls.CONF.CALLBACK[v[1].NAME]
+                if callback then
+                    callback.FUNCS = FUNCS
+                    if not callback.TAG_MAKER then
+                        callback.TAG_MAKER = olua.format 'olua_makecallbacktag("${TAG}")'
+                    end
+                    if not callback.TAG_MODE then
+                        callback.TAG_MODE = mode
+                    end
+                else
+                    cls.CONF.CALLBACK[v[1].NAME] = {
+                        NAME = v[1].NAME,
+                        FUNCS = FUNCS,
+                        TAG_MAKER = olua.format 'olua_makecallbacktag("${TAG}")',
+                        TAG_MODE = mode,
+                    }
+                end
             end
             for _, cb in ipairs(cls.CONF.CALLBACK) do
-                if #cb.FUNCS == 1 and (string.match(cb.FUNCS[1], '%(%) *$')
-                    or (string.match(cb.FUNCS[1], '%( *void *%) *$'))) then
-                    tryAddProp({
-                        NAME = cb.NAME,
-                        ARGS = 0,
-                    }, filter, props)
+                if not cb.NOTEXPORT then
+                    assert(cb.FUNCS, "callback '" .. cb.NAME .. "' not found")
+                    if #cb.FUNCS == 1 and (string.match(cb.FUNCS[1], '%(%) *$')
+                        or (string.match(cb.FUNCS[1], '%( *void *%) *$'))) then
+                        tryAddProp({
+                            NAME = cb.NAME,
+                            ARGS = 0,
+                        }, filter, props)
+                    end
                 end
             end
             append(']]')
@@ -803,6 +816,9 @@ end
 
 function M:writeConfCallback(cls, append)
     for _, v in ipairs(cls.CONF.CALLBACK) do
+        if v.NOTEXPORT then
+            goto continue
+        end
         local FUNCS = olua.newarray("',\n'", "'", "'"):push(table.unpack(v.FUNCS))
         local TAG_MAKER = olua.newarray("', '", "'", "'")
         local TAG_MODE = olua.newarray("', '", "'", "'")
@@ -840,6 +856,7 @@ function M:writeConfCallback(cls, append)
             append(string.format("    NEW = [[\n%s]],", v.NEW))
         end
         append('}')
+        ::continue::
     end
 end
 
