@@ -580,30 +580,37 @@ function M:writeTypedef()
     end
     table.sort(classes)
     table.sort(enums)
+    local filter = {}
     for _, v in ipairs(enums) do
         local CPPCLS = v
-        local LUACLS = self.conf.MAKE_LUACLS(v)
-        file:write(format([[
-            typedef {
-                CPPCLS = '${CPPCLS}',
-                DECLTYPE = 'lua_Unsigned',
-                CONV = 'olua_$$_uint',
-                LUACLS = '${LUACLS}',
-            }
-        ]]))
-        file:write('\n\n')
+        if not filter[CPPCLS] then
+            local LUACLS = self.conf.MAKE_LUACLS(v)
+            filter[CPPCLS] = true
+            file:write(format([[
+                typedef {
+                    CPPCLS = '${CPPCLS}',
+                    DECLTYPE = 'lua_Unsigned',
+                    CONV = 'olua_$$_uint',
+                    LUACLS = '${LUACLS}',
+                }
+            ]]))
+            file:write('\n\n')
+        end
     end
     for _, v in ipairs(classes) do
         local CPPCLS = v
-        local LUACLS = self.conf.MAKE_LUACLS(v)
-        file:write(format([[
-            typedef {
-                CPPCLS = '${CPPCLS} *',
-                CONV = 'olua_$$_cppobj',
-                LUACLS = '${LUACLS}',
-            }
-        ]]))
-        file:write('\n\n')
+        if not filter[CPPCLS] then
+            local LUACLS = self.conf.MAKE_LUACLS(v)
+            filter[CPPCLS] = true
+            file:write(format([[
+                typedef {
+                    CPPCLS = '${CPPCLS} *',
+                    CONV = 'olua_$$_cppobj',
+                    LUACLS = '${LUACLS}',
+                }
+            ]]))
+            file:write('\n\n')
+        end
     end
 end
 
@@ -750,7 +757,7 @@ function M:writeClass(append)
             end
             append(']]')
             for _, fn in ipairs(cls.VARS) do
-                local LUANAME = cls.CONF.LUANAME(fn.NAME)
+                local LUANAME = cls.CONF.MAKE_LUANAME(fn.NAME)
                 append(format("cls.var('${LUANAME}', [[${fn.SNIPPET}]])"))
             end
             self:writeConfEnum(cls, append)

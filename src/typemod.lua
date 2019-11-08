@@ -145,7 +145,7 @@ return function (name)
             ENUM = createTable(classname),
             INJECT = createTable(classname),
             INDEX = INDEX,
-            LUANAME = function (n) return n end,
+            MAKE_LUANAME = function (n) return n end,
         }
         INDEX = INDEX + 1
         module.CLASSES[classname] = cls
