@@ -221,7 +221,7 @@ function M:visitMethod(cls, cur)
         if funcType then
             callbackType = 'RET'
             resultType = funcType
-            if callback.NULLABLE ~= false then
+            if callback.NULLABLE then
                 exps[#exps + 1] = '@nullable '
             end
             if callback.LOCAL ~= false then
@@ -246,7 +246,7 @@ function M:visitMethod(cls, cur)
         if funcType then
             callbackType = 'ARG'
             type = funcType
-            if callback.NULLABLE ~= false then
+            if callback.NULLABLE then
                 exps[#exps + 1] = '@nullable '
             end
             if callback.LOCAL ~= false then
@@ -697,7 +697,7 @@ function M:writeClass(append)
             local callbacks = {}
             for _, fn in ipairs(cls.FUNCS) do
                 if isNewFunc(cls.SUPERCLS, fn) then
-                    if not fn.CALLBACK_TYPE then
+                    if not fn.CALLBACK_TYPE and not cls.CONF.CALLBACK[fn.NAME] then
                         append('    ' .. fn.FUNC)
                         tryAddProp(fn, filter, props)
                     else
