@@ -19,6 +19,9 @@ end
 
 setmetatable(ignoredClass, {__gc = function ()
     os.remove(HEADER_PATH)
+    log(string.rep('-', 80))
+    log('-- IGNORE CLASS')
+    log(string.rep('-', 80))
     for cls, flag in pairs(ignoredClass) do
         if flag then
             log("[ignore class] %s", cls)
@@ -306,7 +309,9 @@ function M:visitFieldDecl(cls, cur)
     end
 
     local type = self:toFuncType(cur:type())
+    local callbackType
     if type then
+        callbackType = 'VAR'
         exps[#exps + 1] = '@nullable '
         local callback = cls.CONF.CALLBACK[cur:name()] or {}
         callback.NOTEXPORT = true
@@ -327,7 +332,7 @@ function M:visitFieldDecl(cls, cur)
     if self.conf.EXCLUDE_PASS(cls.CPPCLS, cur:name(), decl) then
         return
     else
-        return {NAME = cur:name(), SNIPPET = decl}
+        return {NAME = cur:name(), SNIPPET = decl, CALLBACK_TYPE = callbackType}
     end
 end
 
@@ -667,6 +672,7 @@ function M:writeClass(append)
         if cls.KIND == 'EnumAlias' then
             goto continue
         end
+        log("[%s]", cls.CPPCLS)
         append(format("cls = typecls '${cls.CPPCLS}'"))
         if cls.SUPERCLS then
             append(format('cls.SUPERCLS = "${cls.SUPERCLS}"'))
@@ -756,9 +762,15 @@ function M:writeClass(append)
                 end
             end
             append(']]')
-            for _, fn in ipairs(cls.VARS) do
-                local LUANAME = cls.CONF.MAKE_LUANAME(fn.NAME)
-                append(format("cls.var('${LUANAME}', [[${fn.SNIPPET}]])"))
+            for _, v in ipairs(cls.VARS) do
+                local LUANAME = cls.CONF.MAKE_LUANAME(v.NAME)
+                if v.CALLBACK_TYPE then
+                    log(format([[
+                        var => NAME = '${LUANAME}'
+                               DECL = '${v.SNIPPET}'
+                    ]], 4))
+                end
+                append(format("cls.var('${LUANAME}', [[${v.SNIPPET}]])"))
             end
             self:writeConfEnum(cls, append)
             self:writeConfFunc(cls, append)
@@ -857,6 +869,17 @@ function M:writeConfCallback(cls, append)
                 CALLONCE = ${CALLONCE},
                 REMOVE = ${REMOVE},
         ]]))
+        log(format([[
+            FUNC => NAME = '${v.NAME}'
+                    FUNCS = {
+                        ${FUNCS}
+                    }
+                    TAG_MAKER = ${TAG_MAKER}
+                    TAG_MODE = ${TAG_MODE}
+                    TAG_STORE = ${TAG_STORE}
+                    CALLONCE = ${CALLONCE}
+                    REMOVE = ${REMOVE}
+        ]], 4))
         if v.CPPFUNC then
             append(string.format("    CPPFUNC = '%s',", v.CPPFUNC))
             assert(v.NEW, 'no new object block')
