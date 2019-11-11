@@ -960,27 +960,25 @@ function olua.typeconv(ci)
     for str in string.gmatch(assert(ci.DEF, 'no DEF'), '[^\n\r]+') do
         olua.message(str)
 
-        local tn, attr, varname, default
-        attr, str = parseAttr(str)
-
-        if str and #str > 0 then
-            tn, attr, str = parseType(str)
-            varname, default = string.match(str, '^([^ ]+) *= *([^ ,;]*)')
-            if not varname then
-                varname = string.match(str, '^ *[^ ,;]+')
-            end
+        if str:find('^ *//') then
+            goto continue
         end
-        if tn then
-            varname = prettyTypename(varname)
+
+        str = str:gsub('^ *', ''):gsub('; *$', '')
+
+        local arg = parseArgs(ci, '(' .. str .. ')')[1]
+        if arg then
             ci.PROPS[#ci.PROPS + 1] = {
-                TYPE = olua.typeinfo(tn, ci),
-                DECLTYPE = todecltype(ci, tn, true),
-                VARNAME = varname,
-                LUANAME = string.gsub(varname, '^_*', ''),
-                DEFAULT = default,
-                ATTR = attr,
+                TYPE = olua.typeinfo(arg.TYPE.CPPCLS, ci),
+                DECLTYPE = todecltype(ci, arg.TYPE.CPPCLS, true),
+                VARNAME = arg.VARNAME,
+                LUANAME = string.gsub(arg.VARNAME, '^_*', ''),
+                DEFAULT = arg.DEFAULT,
+                ATTR = arg.ATTR,
             }
         end
+
+        ::continue::
     end
 
     ci.FUNC = {IS = true}

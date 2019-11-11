@@ -134,7 +134,7 @@ return function (name)
 
     function module.typeconf(classname)
         local cls = {
-            CPPCLS = classname,
+            CPPCLS = assert(classname, 'not specify classname'),
             ATTR = createTable(classname),
             ALIAS = createTable(classname),
             EXCLUDE = createTable(classname),
@@ -148,6 +148,7 @@ return function (name)
             MAKE_LUANAME = function (n) return n end,
         }
         INDEX = INDEX + 1
+        assert(not module.CLASSES[classname], 'class conflict: ' .. classname)
         module.CLASSES[classname] = cls
         return typeconfCommand(cls)
     end
@@ -166,7 +167,8 @@ return function (name)
         module.CONVS[#module.CONVS + 1] = {
             CPPCLS = assert(info.CPPCLS),
             VARS = info.VARS,
-            DEF = olua.format(assert(info.DEF)),
+            USING = info.USING,
+            DEF = not info.USING and olua.format(assert(info.DEF)) or nil,
         }
     end
 

@@ -177,17 +177,19 @@ function M:hasDefaultValue(cur)
 end
 
 function M:visitMethod(cls, cur)
+    local access = cur:access()
+    if access == 'private' or access == 'protected' then
+        return
+    end
+
     if cur:kind() == 'Constructor' then
-        if cur:access() ~= 'public'  or
-            cur:isConvertingConstructor() or
+        if cur:isConvertingConstructor() or
             cur:isCopyConstructor() or
             cur:isMoveConstructor() then
             return
         end
-    else
-        if cur:access() ~= 'public' and cur:kind() ~= 'FunctionDecl' then
-            return
-        end
+    elseif cur:name():find('operator *[%-=+/*><!()]?') then
+        return
     end
 
     if cur:kind() ~= 'Constructor' then
@@ -504,14 +506,17 @@ function M:writeHeader(append)
     if #self.conf.CONVS > 0 then
         append('M.CONVS = {')
         for _, CONV in ipairs(self.conf.CONVS) do
-            append(format([=[
-                typeconv {
-                    CPPCLS = '${CONV.CPPCLS}',
-                    DEF = [[
-                        ${CONV.DEF}
-                    ]],
-                },
-            ]=], 4))
+            ignoredClass[CONV.CPPCLS] = false
+            if not CONV.USING then
+                append(format([=[
+                    typeconv {
+                        CPPCLS = '${CONV.CPPCLS}',
+                        DEF = [[
+                            ${CONV.DEF}
+                        ]],
+                    },
+                ]=], 4))
+            end
         end
         append('}')
         append('')
@@ -554,7 +559,7 @@ function M:writeTypedef()
         writeLine("")
     end
     for _, v in ipairs(self.conf.CONVS) do
-        local CPPCLS_PATH = string.gsub(v.CPPCLS, '::', '_')
+        local CPPCLS_PATH = string.gsub(v.USING or v.CPPCLS, '::', '_')
         local VARS = v.VARS or 'nil'
         file:write(format([[
             typedef {

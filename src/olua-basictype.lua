@@ -22,6 +22,7 @@ typedef {
 
 typedef {
     CPPCLS = [[
+        uint8_t *
         char *
         const char *
         unsigned char *
