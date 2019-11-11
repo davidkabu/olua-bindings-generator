@@ -763,11 +763,11 @@ function olua.typecls(cppcls)
         local CALLBACK_OPT_SET
         if ARGS[1].CALLBACK.ARGS then
             CALLBACK_OPT_SET = {
-                TAG_MAKER = 'olua_makecallbacktag("' .. name .. '")',
+                TAG_MAKER =  name,
                 TAG_MODE = 'OLUA_TAG_REPLACE',
             }
             CALLBACK_OPT_GET = {
-                TAG_MAKER = 'olua_makecallbacktag("' .. name .. '")',
+                TAG_MAKER = name,
                 TAG_MODE = 'OLUA_TAG_EQUAL',
             }
         end

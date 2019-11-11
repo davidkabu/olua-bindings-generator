@@ -17,6 +17,10 @@ local function genCallbackTag(cls, fi, write)
         olua.error("no tag maker: %s.%s", cls.CPPCLS, fi.LUAFUNC)
     end
 
+    if not string.find(fi.CALLBACK_OPT.TAG_MAKER, '[()]+') then
+        return olua.stringfy(fi.CALLBACK_OPT.TAG_MAKER)
+    end
+
     return string.gsub(fi.CALLBACK_OPT.TAG_MAKER, '#(%-?%d+)', function (n)
         local idx = getCallbackStore(fi, tonumber(n))
         return idx == 0 and 'self' or ('arg' .. idx)

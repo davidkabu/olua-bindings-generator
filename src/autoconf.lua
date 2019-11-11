@@ -162,6 +162,7 @@ local DEFAULT_ARG_TYPES = {
     CXXNullPtrLiteralExpr = true,
     GNUNullExpr = true,
     DeclRefExpr = true,
+    CallExpr = true,
 }
 
 function M:hasDefaultValue(cur)
@@ -178,7 +179,7 @@ end
 
 function M:visitMethod(cls, cur)
     local access = cur:access()
-    if access == 'private' or access == 'protected' then
+    if access == 'private' or access == 'protected' or cur:isVariadic() then
         return
     end
 
@@ -740,7 +741,7 @@ function M:writeClass(append)
                 if callback then
                     callback.FUNCS = FUNCS
                     if not callback.TAG_MAKER then
-                        callback.TAG_MAKER = olua.format 'olua_makecallbacktag("${TAG}")'
+                        callback.TAG_MAKER = olua.format '${TAG}'
                     end
                     if not callback.TAG_MODE then
                         callback.TAG_MODE = mode
@@ -749,7 +750,7 @@ function M:writeClass(append)
                     cls.CONF.CALLBACK[v[1].NAME] = {
                         NAME = v[1].NAME,
                         FUNCS = FUNCS,
-                        TAG_MAKER = olua.format 'olua_makecallbacktag("${TAG}")',
+                        TAG_MAKER = olua.format '${TAG}',
                         TAG_MODE = mode,
                     }
                 end
@@ -887,8 +888,6 @@ function M:writeConfCallback(cls, append)
         ]], 4))
         if v.CPPFUNC then
             append(string.format("    CPPFUNC = '%s',", v.CPPFUNC))
-            assert(v.NEW, 'no new object block')
-            append(string.format("    NEW = [[\n%s]],", v.NEW))
         end
         append('}')
         ::continue::

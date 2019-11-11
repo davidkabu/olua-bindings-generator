@@ -340,23 +340,16 @@ local function genOneFunc(cls, fi, write, funcidx, exported)
     if fi.CALLBACK_OPT then
         FUNC.CALLBACK = olua.genCallback(cls, fi, write)
 
-        -- user-defined the new block
-        --[=[
-            CALLBACK_OPT = {
-                ...
-                CPPFUNC = 'init',
-                NEW = [[
-                    auto *self = new ${DECLTYPE}();
-                    auto *ret = self;
-                    self->autorelease();
-                    olua_push_cppobj<${DECLTYPE}>(L, self);
-                ]],
-            }
-        ]=]
-        if fi.CALLBACK_OPT.NEW then
+        if fi.CALLBACK_OPT.CPPFUNC then
             local DECLTYPE = string.gsub(fi.RET.TYPE.DECLTYPE, ' *%*$', '')
-            local LUACLS = fi.RET.TYPE.LUACLS
-            FUNC.CALLBACK = format(fi.CALLBACK_OPT.NEW) .. '\n\n' .. FUNC.CALLBACK
+            FUNC.CALLBACK = format([[
+                ${DECLTYPE} *self = new ${DECLTYPE}();
+                ${DECLTYPE} *ret = self;
+                olua_push_cppobj<${DECLTYPE}>(L, self);
+                olua_postnew(L, ret);
+
+                ${FUNC.CALLBACK}
+            ]])
             FUNC.RET_EXP = ''
             CALLER = 'self->'
             CPPFUNC = fi.CALLBACK_OPT.CPPFUNC
