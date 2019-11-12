@@ -22,7 +22,7 @@ function olua.write(path, content)
     file:close()
 end
 
-function olua.stringfy(value)
+function olua.stringify(value)
     if value then
         return '"' .. tostring(value) .. '"'
     else

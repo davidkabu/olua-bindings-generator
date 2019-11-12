@@ -18,7 +18,7 @@ local function genCallbackTag(cls, fi, write)
     end
 
     if not string.find(fi.CALLBACK_OPT.TAG_MAKER, '[()]+') then
-        return olua.stringfy(fi.CALLBACK_OPT.TAG_MAKER)
+        return olua.stringify(fi.CALLBACK_OPT.TAG_MAKER)
     end
 
     return string.gsub(fi.CALLBACK_OPT.TAG_MAKER, '#(%-?%d+)', function (n)

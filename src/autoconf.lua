@@ -54,6 +54,7 @@ function M:checkClass()
                 CONF = cls,
                 FUNCS = {},
                 VARS = {},
+                CONSTS = {},
                 ENUMS = {},
                 INST_FUNCS = {},
             }
@@ -119,6 +120,7 @@ function M:visitEnum(cur)
     cls.CONF = conf
     cls.CPPCLS = cppcls
     cls.ENUMS = {}
+    cls.CONSTS = {}
     visitedClass[cppcls] = true
     if cur:kind() ~= 'TypeAliasDecl' then
         for _, c in ipairs(cur:children()) do
@@ -178,8 +180,7 @@ function M:hasDefaultValue(cur)
 end
 
 function M:visitMethod(cls, cur)
-    local access = cur:access()
-    if access == 'private' or access == 'protected' or cur:isVariadic() then
+    if cur:isVariadic() then
         return
     end
 
@@ -250,6 +251,7 @@ function M:visitMethod(cls, cur)
             exps[#exps + 1] = ', '
         end
         if funcType then
+            assert(not callbackType, cls.CPPCLS .. '::' .. cur:displayName())
             callbackType = 'ARG'
             type = funcType
             if callback.NULLABLE then
@@ -297,7 +299,7 @@ function M:toFuncType(type)
 end
 
 function M:visitFieldDecl(cls, cur)
-    if cur:access() ~= 'public' or cur:type():isConst() then
+    if cur:type():isConst() then
         return nil
     end
 
@@ -324,6 +326,9 @@ function M:visitFieldDecl(cls, cur)
     else
         type = cur:type():name()
     end
+    if cur:kind() == 'VarDecl' then
+        exps[#exps + 1] = 'static '
+    end
     exps[#exps + 1] = type
     if not string.find(type, '[*&]$') then
         exps[#exps + 1] = ' '
@@ -349,6 +354,7 @@ function M:visitClass(cur)
     cls.CONF = conf
     cls.FUNCS = {}
     cls.VARS = {}
+    cls.CONSTS = {}
     cls.ENUMS = {}
     cls.KIND = 'Class'
     cls.INST_FUNCS = {}
@@ -363,25 +369,24 @@ function M:visitClass(cur)
 
     for _, c in ipairs(cur:children()) do
         local kind = c:kind()
-        if kind == 'CXXBaseSpecifier' then
+        local access = c:access()
+        if access == 'private' or access == 'protected' then
+            goto continue
+        elseif kind == 'CXXBaseSpecifier' then
             if not cls.SUPERCLS then
                 cls.SUPERCLS = c:type():name()
             end
-        elseif kind == 'FieldDecl' then
-            if conf.EXCLUDE['*'] or conf.EXCLUDE[c:name()] then
+        elseif kind == 'FieldDecl' or kind == 'VarDecl' then
+            local vn = c:name()
+            if conf.EXCLUDE['*'] or conf.EXCLUDE[vn] or vn:find('^_') then
                 goto continue
             end
-            cls.VARS[#cls.VARS + 1] = self:visitFieldDecl(cls, c)
-        elseif kind == 'VarDecl' then
-            if conf.EXCLUDE['*'] then
-                goto continue
-            end
-            local children = c:children()
-            if c:access() == 'public' and #children > 0 then
-                local ck = children[1]:kind()
-                if ck == 'IntegerLiteral' then
-                    cls.ENUMS[#cls.ENUMS + 1] = c:name()
+            if c:type():isConst() and kind == 'VarDecl' then
+                if not self:shouldExcludeType(c:type()) then
+                    cls.CONSTS[#cls.CONSTS + 1] = {NAME = vn, TYPENAME = c:type():name()}
                 end
+            else
+                cls.VARS[#cls.VARS + 1] = self:visitFieldDecl(cls, c)
             end
         elseif kind == 'Constructor' or kind == 'FunctionDecl' or kind == 'CXXMethod' then
             local displayName = c:displayName()
@@ -415,11 +420,6 @@ function M:visitClass(cur)
 end
 
 function M:visit(cur)
-    local access = cur:access()
-    if access == 'private' or access == 'protected' then
-        return
-    end
-
     local kind = cur:kind()
     local children = cur:children()
     local cls = cur:fullname()
@@ -711,6 +711,11 @@ function M:writeClass(append)
                     append('    ' .. value)
                 end
                 append(']]')
+            end
+            for _, v in ipairs(cls.CONSTS) do
+                append(format([[
+                    cls.const('${v.NAME}', '${cls.CPPCLS}::${v.NAME}', '${v.TYPENAME}')
+                ]]))
             end
             append('cls.funcs [[')
             local callbacks = {}

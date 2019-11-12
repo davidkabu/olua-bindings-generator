@@ -236,12 +236,12 @@ local function parseCallbackType(cls, tn, default)
         decltype[#decltype + 1] = ai.RAW_DECLTYPE
     end
     decltype = table.concat(decltype, ", ")
-    decltype = string.format('std::function<%s(%s)>', todecltype(cls, rtn, false), decltype)
+    decltype = string.format('std::function<%s(%s)>', todecltype(cls, rtn), decltype)
 
     local RET = {}
     RET.TYPE = olua.typeinfo(rtn, cls)
     RET.NUM = RET.TYPE.CPPCLS == "void" and 0 or 1
-    RET.DECLTYPE = todecltype(cls, rtn, false)
+    RET.DECLTYPE = todecltype(cls, rtn)
     RET.ATTR = rtattr
 
     return {
@@ -313,6 +313,11 @@ function parseArgs(cls, declstr)
             default = string.gsub(default, dtn, dti.CPPCLS)
         end
 
+        if attr.OPTIONAL and (tn:find('std::function<')
+            or olua.ispointee(olua.typeinfo(tn, cls))) then
+            default = 'nullptr'
+        end
+
         -- is callback
         if string.find(tn, 'std::function<') then
             local callback = parseCallbackType(cls, tn, default)
@@ -330,7 +335,7 @@ function parseArgs(cls, declstr)
             args[#args + 1] = {
                 TYPE = olua.typeinfo(tn, cls),
                 DECLTYPE = todecltype(cls, tn, true),
-                RAW_DECLTYPE = todecltype(cls, tn, false),
+                RAW_DECLTYPE = todecltype(cls, tn),
                 DEFAULT = default,
                 VARNAME = varname or '',
                 ATTR = attr,
@@ -484,7 +489,7 @@ local function parseFunc(cls, name, ...)
             else
                 fi.RET.TYPE = olua.typeinfo(typename, cls)
                 fi.RET.NUM = fi.RET.TYPE.CPPCLS == "void" and 0 or 1
-                fi.RET.DECLTYPE = todecltype(cls, typename, false)
+                fi.RET.DECLTYPE = todecltype(cls, typename)
                 fi.RET.ATTR = attr
             end
             fi.ARGS, fi.MAX_ARGS = parseArgs(cls, string.sub(str, #fi.CPPFUNC + 1))
@@ -840,14 +845,26 @@ function olua.typecls(cppcls)
         end
     end
 
-    function cls.const(name, value)
-        local tv = type(value)
-        assert(not string.find(name, '[^_%w]+'), name)
-        assert(tv == "boolean" or tv == "number" or tv == "string", tv)
+    function cls.const(name, value, typename)
+        if not typename then
+            local t = type(value)
+            if t == 'string' then
+                typename = 'const char *'
+                value = olua.stringify(value)
+            elseif t == 'boolean' then
+                typename = 'bool'
+            elseif math.type(value) == 'integer' then
+                typename = 'int64_t'
+            elseif t == 'number' then
+                typename = 'double'
+            else
+                error('type not support: ' .. t)
+            end
+        end
         cls.CONSTS[#cls.CONSTS + 1] = {
             CONST_NAME = assert(name),
             CONST_VALUE = value,
-            CONST_TYPE = tv == "number" and (math.type(value)) or tv,
+            CONST_TYPE = olua.typeinfo(typename, cls),
         }
     end
 

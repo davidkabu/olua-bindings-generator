@@ -114,7 +114,7 @@ local function genClassOpen(cls, write)
     local CPPCLS_PATH = olua.topath(cls.CPPCLS)
     local SUPRECLS = "nullptr"
     if cls.SUPERCLS then
-        SUPRECLS = olua.stringfy(olua.toluacls(cls.SUPERCLS))
+        SUPRECLS = olua.stringify(olua.toluacls(cls.SUPERCLS))
     end
     local FUNCS = {}
     local REG_LUATYPE = ''
@@ -156,24 +156,32 @@ local function genClassOpen(cls, write)
         return a.CONST_NAME < b.CONST_NAME
     end)
     for _, ci in ipairs(cls.CONSTS) do
-        local CONST_FUNC
-        local CONST_VALUE = ci.CONST_VALUE
-        if ci.TYPE == "boolean" then
-            CONST_FUNC = "oluacls_const_bool"
-        elseif ci.TYPE == "integer" then
-            CONST_FUNC = "oluacls_const_integer"
-        elseif ci.TYPE == "float" then
-            CONST_FUNC = "oluacls_const_number"
-        elseif ci.TYPE == "string" then
-            CONST_FUNC = "oluacls_const_string"
-            CONST_VALUE = olua.stringfy(CONST_VALUE)
+        if ci.CONST_TYPE.DECLTYPE == 'bool' then
+            FUNCS[#FUNCS + 1] = format([[
+                oluacls_const_bool(L, "${ci.CONST_NAME}", (${ci.CONST_TYPE.DECLTYPE})${ci.CONST_VALUE});
+            ]])
+        elseif ci.CONST_TYPE.DECLTYPE == 'lua_Integer' then
+            FUNCS[#FUNCS + 1] = format([[
+                oluacls_const_integer(L, "${ci.CONST_NAME}", (${ci.CONST_TYPE.DECLTYPE})${ci.CONST_VALUE});
+            ]])
+        elseif ci.CONST_TYPE.DECLTYPE == 'lua_Number' then
+            FUNCS[#FUNCS + 1] = format([[
+                oluacls_const_number(L, "${ci.CONST_NAME}", (${ci.CONST_TYPE.DECLTYPE})${ci.CONST_VALUE});
+            ]])
+        elseif ci.CONST_TYPE.DECLTYPE == 'const char *' then
+            FUNCS[#FUNCS + 1] = format([[
+                oluacls_const_string(L, "${ci.CONST_NAME}", (${ci.CONST_TYPE.DECLTYPE})${ci.CONST_VALUE});
+            ]])
+        elseif ci.CONST_TYPE.DECLTYPE == 'std::string' then
+            FUNCS[#FUNCS + 1] = format([[
+                oluacls_const_string(L, "${ci.CONST_NAME}", ${ci.CONST_VALUE}.c_str());
+            ]])
+        else
+            error(ci.CONST_TYPE.DECLTYPE)
         end
-        FUNCS[#FUNCS + 1] = format([[
-            ${CONST_FUNC}(L, "${ci.CONST_NAME}", ${CONST_VALUE});
-        ]])
     end
 
-    table.sort(cls.CONSTS, function (a, b)
+    table.sort(cls.ENUMS, function (a, b)
         return a.ENUM_NAME < b.ENUM_NAME
     end)
     for _, ei in ipairs(cls.ENUMS) do
