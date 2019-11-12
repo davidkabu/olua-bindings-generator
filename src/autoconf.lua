@@ -180,7 +180,7 @@ function M:hasDefaultValue(cur)
 end
 
 function M:visitMethod(cls, cur)
-    if cur:isVariadic() then
+    if cur:isVariadic() or cur:name():find('^_') then
         return
     end
 
