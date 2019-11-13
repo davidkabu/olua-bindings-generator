@@ -447,11 +447,13 @@ local function genTestAndCall(cls, fns)
                 MAX_VARS = MAX_VARS,
                 EXP1 = format([[
                     // if (${TEST_ARGS}) {
+                        // ${fi.DECLFUNC}
                         return _${CPPCLS_PATH}_${fi.CPPFUNC}${fi.INDEX}(L);
                     // }
                 ]]),
                 EXP2 = format([[
                     if (${TEST_ARGS}) {
+                        // ${fi.DECLFUNC}
                         return _${CPPCLS_PATH}_${fi.CPPFUNC}${fi.INDEX}(L);
                     }
                 ]]),
@@ -466,6 +468,7 @@ local function genTestAndCall(cls, fns)
             CALL_CHUNK[#CALL_CHUNK + 1] = {
                 MAX_VARS = 1,
                 EXP1 = format([[
+                    // ${fi.DECLFUNC}
                     return _${CPPCLS_PATH}_${fi.CPPFUNC}${fi.INDEX}(L);
                 ]])
             }
